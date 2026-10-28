@@ -37,81 +37,114 @@ def _mcubes_shim():
     sys.modules.setdefault("rembg", types.SimpleNamespace(remove=None, new_session=None))   # unused: our mask
 
 
-def object_view(P_world, cams, pad=0.15):
-    """Keyframe where the object is largest and fully inside; crop + mask from its projected points."""
-    import cv2
+def sam_view(k, props, objs_world, cams, every=3, pad=0.12):
+    """Best keyframe for object k from the cached SAM 3.1 masks: largest mask, inside the image, least
+    covered by the other objects' masks. Returns a TripoSR-ready RGB image (object on grey)."""
+    from backends.meta import client
+    from backends.meta.sam_parse import parse_image
+    W, H = cams["width"], cams["height"]
     best = None
-    for f in cams["frames"]:
-        uv, z = project(P_world, f["K"], f["c2w"])
-        uv = uv[z > 0]
-        if len(uv) < 100:
+    for f in cams["frames"][::every]:
+        img = Image.open(f["image"])
+        uri = client.image_data_uri(img, quality=90)              # same request as sam_vote -> cache hit
+        chosen = {}
+        for j, Pw in objs_world.items():
+            res = client.sam31_image(props[str(j)]["sam_prompt"], uri)
+            if res["status"] != 200:
+                continue
+            masks = parse_image(res["raw"], (H, W))
+            uv, z = project(Pw, f["K"], f["c2w"])
+            ok = (z > 0) & (uv[:, 0] >= 0) & (uv[:, 1] >= 0) & (uv[:, 0] < W) & (uv[:, 1] < H)
+            if not masks or ok.sum() < 50:
+                continue
+            u, v = uv[ok, 0].astype(int), uv[ok, 1].astype(int)
+            mk = max(masks, key=lambda m: m["mask"][v, u].mean())
+            if mk["mask"][v, u].mean() > 0.3:
+                chosen[j] = mk["mask"]
+        if k not in chosen:
             continue
-        x0, y0 = uv.min(0)
-        x1, y1 = uv.max(0)
-        if x0 < 0 or y0 < 0 or x1 >= cams["width"] or y1 >= cams["height"]:
-            continue
-        if best is None or (x1 - x0) * (y1 - y0) > best[0]:
-            best = ((x1 - x0) * (y1 - y0), f, uv)
-    _, f, uv = best
+        m = chosen[k]
+        ys, xs = np.nonzero(m)
+        if xs.min() <= 1 or ys.min() <= 1 or xs.max() >= W - 2 or ys.max() >= H - 2:
+            continue                                               # cut by the image border
+        others = np.zeros_like(m)
+        for j, mj in chosen.items():
+            if j != k:
+                others |= mj
+        ring = cv2_dilate(m, 9) & ~m                              # another object touching the outline
+        score = m.sum() * (1 - (ring & others).sum() / max(ring.sum(), 1))
+        if best is None or score > best[0]:
+            best = (score, f, m)
+    _, f, m = best
     img = np.asarray(Image.open(f["image"]).convert("RGB"))
-    mask = np.zeros(img.shape[:2], np.uint8)
-    mask[np.clip(uv[:, 1].astype(int), 0, img.shape[0] - 1), np.clip(uv[:, 0].astype(int), 0, img.shape[1] - 1)] = 1
-    mask = cv2.morphologyEx(cv2.dilate(mask, np.ones((5, 5), np.uint8)), cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
-    x0, y0 = uv.min(0).astype(int)
-    x1, y1 = uv.max(0).astype(int)
-    s = int(max(x1 - x0, y1 - y0) * (1 + 2 * pad))
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    out = np.full((s, s, 3), 127, np.uint8)                      # grey background, as TripoSR expects
-    sx0, sy0 = max(0, cx - s // 2), max(0, cy - s // 2)
-    sx1, sy1 = min(img.shape[1], cx + s // 2), min(img.shape[0], cy + s // 2)
-    m = mask[sy0:sy1, sx0:sx1, None].astype(bool)
-    out[sy0 - (cy - s // 2):sy1 - (cy - s // 2), sx0 - (cx - s // 2):sx1 - (cx - s // 2)] = \
-        np.where(m, img[sy0:sy1, sx0:sx1], 127)
+    ys, xs = np.nonzero(m)
+    s = int(max(np.ptp(xs), np.ptp(ys)) * (1 + 2 * pad))
+    cx, cy = (xs.min() + xs.max()) // 2, (ys.min() + ys.max()) // 2
+    out = np.full((s, s, 3), 127, np.uint8)
+    oy, ox = cy - s // 2, cx - s // 2
+    yy, xx = ys - oy, xs - ox
+    keep = (yy >= 0) & (xx >= 0) & (yy < s) & (xx < s)
+    out[yy[keep], xx[keep]] = img[ys[keep], xs[keep]]
     return Image.fromarray(out).resize((512, 512)), f
 
 
+def cv2_dilate(m, k):
+    import cv2
+    return cv2.dilate(m.astype(np.uint8), np.ones((k, k), np.uint8)).astype(bool)
+
+
 def align(mesh_v, pts):
-    """Similarity transform mesh -> object points (object frame, z up, base at z = 0).
-    Coarse search: 6 up-axes x 12 yaws, scale from height; then ICP with scale."""
-    best = None
-    H = np.percentile(pts[:, 2], 98)
+    """Upright similarity: TripoSR meshes are z-up; search yaw (5 deg) only, scale from height,
+    xy from medians. No free tilt (ICP tilted and flipped objects)."""
     tree = cKDTree(pts)
-    ups = {"+x": [0, 1, 0, 0], "-x": [0, -1, 0, 0], "+y": [-1, 0, 0, 0], "-y": [1, 0, 0, 0], "+z": None, "-z": [0, 0, 1, 1]}
-    for name, aa in ups.items():
-        R0 = np.eye(3)
-        if name in ("+x", "-x"):
-            R0 = Rotation.from_euler("y", -90 if name == "+x" else 90, degrees=True).as_matrix()
-        elif name in ("+y", "-y"):
-            R0 = Rotation.from_euler("x", 90 if name == "+y" else -90, degrees=True).as_matrix()
-        elif name == "-z":
-            R0 = Rotation.from_euler("x", 180, degrees=True).as_matrix()
-        for yaw in np.radians(np.arange(0, 360, 30)):
-            R = Rotation.from_euler("z", yaw).as_matrix() @ R0
-            v = mesh_v @ R.T
-            s = H / max(np.ptp(v[:, 2]), 1e-6)
-            v = v * s
-            v = v - [*np.median(v[:, :2], 0), v[:, 2].min()] + [*np.median(pts[:, :2], 0), 0]
-            d = tree.query(v[::max(1, len(v) // 3000)])[0].mean() + cKDTree(v).query(pts[::max(1, len(pts) // 3000)])[0].mean()
-            if best is None or d < best[0]:
-                best = (d, v, name, yaw)
-    d0, v, up, yaw = best
-    sub = pts[::max(1, len(pts) // 5000)]
-    M, _, cost = trimesh.registration.icp(v, sub, scale=True, max_iterations=40)
-    v2 = trimesh.transform_points(v, M)
-    return v2, {"up": up, "yaw_deg": float(np.degrees(yaw)), "chamfer_coarse": float(d0), "icp_cost": float(cost)}
+    H = np.percentile(pts[:, 2], 98)
+    sub = pts[::max(1, len(pts) // 3000)]
+    def fit(yaw, pitch, roll):
+        # TripoSR assumes a level camera; our frames look down, so small tilts are searched too.
+        R = Rotation.from_euler("zyx", [yaw, pitch, roll]).as_matrix()
+        v = mesh_v @ R.T
+        v = v * (H / max(np.ptp(v[:, 2]), 1e-6))
+        v = v - [*np.median(v[:, :2], 0), v[:, 2].min()] + [*np.median(pts[:, :2], 0), 0]
+        return tree.query(v[::max(1, len(v) // 2000)])[0].mean() + cKDTree(v).query(sub)[0].mean(), v
+
+    best = None
+    for yaw in np.radians(np.arange(0, 360, 10)):
+        for pitch in np.radians([-30, -15, 0, 15, 30]):
+            for roll in np.radians([-30, -15, 0, 15, 30]):
+                d, _ = fit(yaw, pitch, roll)
+                if best is None or d < best[0]:
+                    best = (d, yaw, pitch, roll)
+    _, y0, p0, r0 = best
+    for yaw in y0 + np.radians([-5, 0, 5]):                     # refine
+        for pitch in p0 + np.radians([-5, 0, 5]):
+            for roll in r0 + np.radians([-5, 0, 5]):
+                d, _ = fit(yaw, pitch, roll)
+                if d < best[0]:
+                    best = (d, yaw, pitch, roll)
+    d, yaw, pitch, roll = best
+    _, v = fit(yaw, pitch, roll)
+    return v, {"yaw_deg": float(np.degrees(yaw)), "tilt_deg": [float(np.degrees(pitch)), float(np.degrees(roll))],
+               "chamfer": float(d)}
 
 
-def fill_gaussians(mesh, pts, k_sh, gap, n=60000):
-    """Surface samples of the generated mesh farther than `gap` from any scanned Gaussian -> raw 3DGS."""
+def fill_gaussians(mesh, pts, k_sh, gap, n=120000):
+    """Flat, semi-transparent Gaussians on the generated surface where the scan has none."""
     P, fid = trimesh.sample.sample_surface(mesh, n)
     col = mesh.visual.vertex_colors[mesh.faces[fid, 0], :3] / 255.0 if mesh.visual.kind == "vertex" \
         else np.full((len(P), 3), 0.6)
+    nrm = mesh.face_normals[fid]
     far = cKDTree(pts).query(P)[0] > gap
-    P, col = P[far].astype(np.float32), col[far].astype(np.float32)
-    sc = np.full((len(P), 3), np.log(gap * 0.6), np.float32)
-    return {"means": P, "sh0": ((col - 0.5) / splat.SH_C0).astype(np.float32),
-            "shN": np.zeros((len(P), k_sh), np.float32), "opacity": np.full(len(P), 2.5, np.float32),
-            "scales": sc, "quats": np.tile([1, 0, 0, 0], (len(P), 1)).astype(np.float32)}
+    P, col, nrm = P[far], col[far], nrm[far]
+    z = np.array([0, 0, 1.0])                                     # rotate disc normal (z) onto the face normal
+    axis = np.cross(z, nrm)
+    s = np.linalg.norm(axis, axis=1, keepdims=True)
+    ang = np.arctan2(s[:, 0], nrm @ z)
+    axis = np.where(s > 1e-8, axis / np.maximum(s, 1e-8), [1, 0, 0])
+    q = np.c_[np.cos(ang / 2), axis * np.sin(ang / 2)[:, None]].astype(np.float32)
+    r = gap * 0.35
+    return {"means": P.astype(np.float32), "sh0": ((col - 0.5) / splat.SH_C0).astype(np.float32),
+            "shN": np.zeros((len(P), k_sh), np.float32), "opacity": np.full(len(P), 0.4, np.float32),
+            "scales": np.log(np.tile([r, r, r * 0.1], (len(P), 1))).astype(np.float32), "quats": q}
 
 
 def main():
@@ -137,13 +170,14 @@ def main():
     raw = splat.load_raw(run / a.src / "splat.ply")
     op = 1 / (1 + np.exp(-raw["opacity"]))
     rep = {}
+    props = json.loads((run / "props.json").read_text())
+    objs_world = {k: raw["means"][(labels == k) & (op > 0.3)] for k in range(1, labels.max() + 1)}
     for k in range(1, labels.max() + 1):
-        sel = (labels == k) & (op > 0.3)
-        Pw = raw["means"][sel]
+        Pw = objs_world[k]
         Pt = Pw @ T[:3, :3].T + T[:3, 3]
         base = np.array([*np.median(Pt[:, :2], 0), 0.0])          # same object frame as viewer.app
         pts = Pt - base
-        img, f = object_view(Pw, cams)
+        img, f = sam_view(k, props, objs_world, cams)
         img.save(out / f"obj_{k}_input.png")
         with torch.no_grad():
             codes = model([img], device="cuda")
@@ -157,7 +191,7 @@ def main():
         splat.save_raw(out / f"obj_{k}_fill.ply", fill)
         rep[k] = {**info, "mesh_vertices": int(len(v)), "fill_gaussians": int(len(fill["means"])),
                   "frame": f["name"], "mesh_height": float(np.ptp(v[:, 2])), "scan_height": float(np.percentile(pts[:, 2], 98))}
-        print(f"obj {k}: {len(v):,} verts, up {info['up']}, icp {info['icp_cost']:.4f}, "
+        print(f"obj {k}: {len(v):,} verts, yaw {info['yaw_deg']:.0f}, chamfer {info['chamfer']:.4f}, "
               f"fill {len(fill['means']):,} Gaussians", flush=True)
     (out / "complete3d.json").write_text(json.dumps(rep, indent=1))
 
