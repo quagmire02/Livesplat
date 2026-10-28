@@ -97,6 +97,16 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
                 s = splat.subset(raw, sel)
                 s["means"] = (s["means"] - o["base"]).astype(np.float32)
                 splat.save_raw(out / "splats" / f"{tag}{part}.ply", s)
+        if o.get("fill") is not None:                          # table patch under the object (raw PLY)
+            f_ = o["fill"]
+            n_ = len(f_["means"])
+            k_sh = raw["shN"].shape[1]
+            splat.save_raw(out / "splats" / f"{tag}_fill.ply", {
+                "means": (f_["means"] + o["base"]).astype(np.float32),
+                "sh0": ((f_["rgb"] - 0.5) / splat.SH_C0).astype(np.float32),
+                "shN": np.zeros((n_, k_sh), np.float32),
+                "opacity": np.log(f_["opacity"] / (1 - f_["opacity"])).astype(np.float32),
+                "scales": np.log(f_["scales"]).astype(np.float32), "quats": f_["quats"]})
         (out / "urdf" / f"{tag}.urdf").write_text(
             urdf(tag, f"../meshes/{tag}_collision.obj", f"../meshes/{tag}_visual.obj", rgba, o["mass"], com, I, mu))
         assets += [f'<mesh name="{tag}_col" file="{tag}_collision.obj"/>',
@@ -113,6 +123,7 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
         objs_meta.append({
             "id": k, "body": tag, "name": nm[0], "aliases": nm[1:],
             "pose": {"pos": o["base"].tolist(), "quat_wxyz": [1, 0, 0, 0]},
+            "capture_pos": o["base"].tolist(),
             "size_xyz": ext.round(5).tolist(), "volume": float(hull.volume),
             "mass": {"value": o["mass"], "source": "spark_vision" if "mass_kg" in p else "default_density_x_hull"},
             "friction": {"value": mu, "source": "spark_vision" if "friction" in p else "default"},

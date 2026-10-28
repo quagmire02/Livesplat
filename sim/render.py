@@ -59,10 +59,21 @@ class SplatRenderer:
         self.static = {k: t(v) for k, v in bg.items()}
         self.objs = []
         for o in self.meta["objects"]:
-            entry = {"body": o["body"], "rest": np.array(o["pose"]["pos"]), "parts": {}}
-            for part, f in (("obj", o["files"]["splat"]), ("refl", o["files"]["splat"].replace(".ply", "_reflection.ply"))):
+            entry = {"body": o["body"], "rest": np.array(o["pose"]["pos"]),
+                     "capture": np.array(o.get("capture_pos", o["pose"]["pos"])), "parts": {}, "fill": None}
+            base = o["files"]["splat"]
+            for part, f in (("obj", base), ("refl", base.replace(".ply", "_reflection.ply"))):
                 if (self.dir / f).exists():
-                    entry["parts"][part] = {k: t(v) for k, v in load_ply(self.dir / f).items()}
+                    s = load_ply(self.dir / f)
+                    if o.get("tint_rgb") is not None:            # colour variant: scale the RGB
+                        tint = np.array(o["tint_rgb"], np.float32)
+                        rgb0 = 0.5 + SH_C0 * s["sh"][:, 0]
+                        s["sh"][:, 0] = (rgb0 * tint - 0.5) / SH_C0
+                        s["sh"][:, 1:] *= tint
+                    entry["parts"][part] = {k: t(v) for k, v in s.items()}
+            ff = base.replace(".ply", "_fill.ply")
+            if (self.dir / ff).exists():
+                entry["fill"] = {k: t(v) for k, v in load_ply(self.dir / ff).items()}
             self.objs.append(entry)
         self.sh_degree = int(round(np.sqrt(self.static["sh"].shape[1]))) - 1
 
@@ -72,6 +83,8 @@ class SplatRenderer:
             b = data.body(o["body"])
             p, q = b.xpos.copy(), b.xquat.copy()
             upright = abs(p[2] - o["rest"][2]) < 0.01 and abs(q[0]) > 0.996
+            if o["fill"] is not None and np.linalg.norm(p[:2] - o["capture"][:2]) > 0.01:
+                parts.append(o["fill"])                          # object left its captured spot
             for name, s in o["parts"].items():
                 if name == "refl":
                     if not upright:

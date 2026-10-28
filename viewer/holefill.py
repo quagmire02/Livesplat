@@ -49,8 +49,14 @@ def fill_splat(bg, base, hull_local, radius, cells=48, ring=(1.05, 1.8), k=8):
     rgb = (ring_rgb[idx] * w[..., None]).sum(1) / w.sum(1, keepdims=True)
 
     n = len(g)
+    # Feather: opacity falls off over the last 4 cells to the footprint edge (no hard square).
+    a, b = poly, np.roll(poly, -1, 0)
+    ab = b - a
+    t = np.clip(((g[:, None] - a[None]) * ab[None]).sum(-1) / (ab * ab).sum(-1)[None], 0, 1)
+    edge = np.linalg.norm(g[:, None] - (a[None] + t[..., None] * ab[None]), axis=-1).min(1)
+    alpha = 0.97 * np.clip(edge / (4 * cell), 0.15, 1.0)
     return {"means": np.c_[g, np.full(n, 0.0005)].astype(np.float32),
             "rgb": rgb.astype(np.float32),
-            "opacity": np.full(n, 0.97, np.float32),
+            "opacity": alpha.astype(np.float32),
             "scales": np.tile([cell * 0.75, cell * 0.75, cell * 0.08], (n, 1)).astype(np.float32),
             "quats": np.tile([1.0, 0.0, 0.0, 0.0], (n, 1)).astype(np.float32)}
