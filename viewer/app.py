@@ -96,6 +96,10 @@ class Scene:
                                  "volume": vol, "mass": max(0.01, DEFAULT_DENSITY * vol),
                                  "friction": DEFAULT_FRICTION, "bounce": 0.1,
                                  "fill": fill_splat(self.bg, base, hull, r)})
+            fr = run / "gen" / f"fill_rgb_{k}.npy"              # Muse Image table texture (holefill_ai)
+            f_ = self.objects[-1]["fill"]
+            if f_ is not None and fr.exists() and len(np.load(fr)) == len(f_["means"]):
+                f_["rgb"] = np.load(fr)
 
         pp = run / "props.json"                         # Spark estimates (agent/properties.py)
         if pp.exists():
@@ -105,6 +109,18 @@ class Scene:
                 o["mass"] = float(p.get("mass_kg", o["mass"]))
                 o["friction"] = float(p.get("friction", o["friction"]))
                 o["bounce"] = float(p.get("bounce", o["bounce"]))
+
+    def make_object(self, k, a):
+        """New object from an activated splat subset in the table frame (click-to-add)."""
+        base = np.array([*np.median(a["means"][:, :2], 0), 0.0])
+        a = dict(a)
+        a["means"] = (a["means"] - base).astype(np.float32)
+        solid = solid_points(a)
+        hull = hull_vertices(solid)
+        vol = ConvexHull(solid).volume
+        return {"id": k, "base": base, "splat": a, "refl": None, "hull": hull, "volume": vol,
+                "mass": max(0.01, DEFAULT_DENSITY * vol), "friction": DEFAULT_FRICTION, "bounce": 0.1,
+                "fill": fill_splat(self.bg, base, hull, self.radius)}
 
     def _floor(self, m, opacity, labels, radial):
         """Floor height = densest level well below the table top."""
@@ -232,6 +248,11 @@ def main():
     def _(ev):
         if ui["sim"]:                                     # simulation mode: tabletop objects are hidden
             return
+        if ui.get("adding"):
+            ui["adding"] = False
+            add_btn.label = "add missed object (then click it)"
+            add_clicked(ev.ray_origin, ev.ray_direction)
+            return
         with lock:
             k = pick(ev.ray_origin, ev.ray_direction, sc.objects, world)
         ui["sel"] = k
@@ -293,6 +314,45 @@ def main():
     rm_path = Path(a.run_dir) / "bg_removed.npy"
     prev_removed = np.load(rm_path) if rm_path.exists() else np.zeros(0, np.int64)   # earlier sessions
     on_table = (np.abs(sc.bg["means"][:, 2]) < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.03)
+    add_btn = server.gui.add_button("add missed object (then click it)")
+
+    @add_btn.on_click
+    def _(_):
+        ui["adding"] = True
+        add_btn.label = "click the missed object in the scene..."
+
+    def add_clicked(ray_o, ray_d):
+        from viewer.add_object import ray_hit, segment_click
+        from scene_io.thrift import load_cameras
+        p = ray_hit(sc, keep, ray_o, ray_d)
+        if p is None:
+            log.content = "_nothing there to add_"
+            return
+        log.content = "_segmenting the clicked object with SAM 3.1..._"
+        sel, n = segment_click(sc, load_cameras(Path(a.run_dir) / a.src), keep, p)
+        if sel is None or sel.sum() < 200:
+            log.content = f"_could not separate an object there ({0 if sel is None else int(sel.sum())} splats)_"
+            return
+        k = max(o["id"] for o in sc.objects) + 1
+        with lock:
+            o = sc.make_object(k, {key: v[sel] for key, v in sc.bg.items()})
+            o.update(rgb0=o["splat"]["rgb"].copy(), scale=1.0,
+                     defaults={"mass": o["mass"], "friction": o["friction"], "bounce": o["bounce"]})
+            sc.objects.append(o)                               # World shares this list
+            world._build()
+            ctrl.names[k] = [f"object {k}", str(k), "new object"]
+            moved_out[sel] = True
+            keep[sel] = False
+            refresh_bg()
+            build_nodes(k)
+            lab_path = Path(a.run_dir) / "labels.npy"          # persist: these splats are object k now
+            labels = np.load(lab_path) if lab_path.exists() else np.load(Path(a.run_dir) / "labels_geo.npy")
+            labels[sc.bg_idx[sel]] = k
+            np.save(lab_path, labels)
+        ui["sel"] = k
+        log.content = f"**added object {k}** ({int(sel.sum()):,} splats, {n} views) · try: push object {k}"
+        show_selection()
+
     clean = server.gui.add_folder("clean up background", expand_by_default=False)
     with clean:
         server.gui.add_markdown("**Shift + drag** a box to erase background splats.")
@@ -310,9 +370,11 @@ def main():
         keep[sel] = False
         refresh_bg()
 
+    moved_out = np.zeros(len(keep), bool)                      # background splats that became objects
+
     def refresh_bg():
         bg_holder["node"] = add_splat(server, "/bg", {k: v[keep] for k, v in sc.bg.items()})
-        np.save(rm_path, np.concatenate([prev_removed, sc.bg_idx[~keep]]).astype(np.int64))
+        np.save(rm_path, np.concatenate([prev_removed, sc.bg_idx[~keep & ~moved_out]]).astype(np.int64))
         clean_info.content = f"{(~keep).sum():,} splats erased this session · {keep.sum():,} kept"
 
     @server.scene.on_rect_select(modifier="shift")
@@ -351,7 +413,7 @@ def main():
             keep[undo_stack.pop()] = True
             refresh_bg()
 
-    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn, clean] + ([planner] if planner else [])
+    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn, clean, add_btn] + ([planner] if planner else [])
 
     @mode_btn.on_click
     def _(_):
