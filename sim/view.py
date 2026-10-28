@@ -42,14 +42,14 @@ def robot_meshes(m, P):
 
 
 class SimMode:
-    """Simulation mode inside any Viser server: package splats + robot under /sim, GUI in one folder."""
+    """Simulation mode inside any Viser server: package splats + a robot under /sim, GUI in one folder.
+    The user picks the arm (sim/robots/*.yaml or their own yaml) and where it sits (x, y, yaw or auto)."""
 
     def __init__(self, server, sim_dir):
-        sim = Path(sim_dir)
+        from sim.robots_list import robot_choices
+        self.sim = sim = Path(sim_dir)
         self.server = server
         self.meta, self.rep, self.arm = load(sim)
-        m, spec = self.arm.m, self.arm.spec
-        self.d = mujoco.MjData(m)
         meta = self.meta
         self.root = server.scene.add_frame("/sim", show_axes=False)
         add_splat(server, "/sim/bg", splat.activate(splat.load_raw(sim / meta["splats"]["background"])))
@@ -62,35 +62,70 @@ class SimMode:
                 self.fill_nodes[b] = add_splat(server, f"/sim/{b}_fill", splat.activate(splat.load_raw(fp)))
                 self.fill_nodes[b].visible = False
             self.rest[b] = np.array(o["pose"]["pos"])
-        self.link_nodes = {}
-        for bid, parts in robot_meshes(m, spec.prefix).items():
-            frame = server.scene.add_frame(f"/sim/robot/{m.body(bid).name}", show_axes=False)
-            for j, (v, f, rgb) in enumerate(parts):
-                server.scene.add_mesh_simple(f"/sim/robot/{m.body(bid).name}/g{j}", vertices=v, faces=f,
-                                             color=tuple(int(255 * c) for c in rgb), flat_shading=False)
-            self.link_nodes[bid] = frame
-        mujoco.mj_resetData(m, self.d)
-        self.home = self.d.qpos.copy()
-        self.home[self.arm.qadr] = spec.home
-        self.show(self.home)
+        self.link_nodes, self.robot_root = {}, None
+        self._load_robot()
 
-        rows = {row["object"]: row for row in self.rep["objects"]}
+        r = meta["table"]["radius"]
+        bx, by, _ = self.rep["base"]["pos"]
         self.folder = server.gui.add_folder("simulation")
+        busy = threading.Lock()
         with self.folder:
-            server.gui.add_markdown(f"**{spec.name}** · gripper {spec.max_opening * 100:.0f} cm · "
-                                    f"units: {meta.get('units', 'scene units')}")
-            pick = server.gui.add_dropdown("object ", list(rows))
+            self.title = server.gui.add_markdown("")
+            choices = robot_choices()
+            robot = server.gui.add_dropdown("robot arm", list(choices), initial_value=self._robot_label(choices))
+            own = server.gui.add_text("or your robot.yaml", "")
+            sx = server.gui.add_slider("base x", -2.5 * r, 2.5 * r, 0.005, float(bx))
+            sy = server.gui.add_slider("base y", -2.5 * r, 2.5 * r, 0.005, float(by))
+            syaw = server.gui.add_slider("base angle deg", -180, 180, 1, float(((self.rep["base"]["yaw_deg"] + 180) % 360) - 180))
+            place = server.gui.add_button_group("placement", ["apply", "auto place"])
+            pick = server.gui.add_dropdown("object ", [row["object"] for row in self.rep["objects"]])
             go = server.gui.add_button("grasp + lift")
             info = server.gui.add_markdown("")
-        busy = threading.Lock()
+        self._update_title()
+
+        def replan(auto):
+            if not busy.acquire(blocking=False):
+                return
+            try:
+                from sim.robot import build, choose_base, reach_report
+                from sim.robot_spec import RobotSpec
+                import trimesh
+                spec_ref = own.value.strip() or choices[robot.value]
+                spec = RobotSpec.load(spec_ref)
+                info.content = f"_planning {spec.name}{' (searching base positions)' if auto else ''}..._"
+                hulls = {o["body"]: np.asarray(trimesh.load(sim / o["files"]["collision"]).vertices) for o in meta["objects"]}
+                if auto:
+                    _, base, yaw, rows = choose_base(sim, spec, meta, hulls, 1.0)
+                else:
+                    base, yaw = (sx.value, sy.value, 0.0), np.radians(syaw.value)
+                    rows = reach_report(build(sim, spec, base, yaw), spec, meta, hulls, 1.0)
+                build(sim, spec, base, yaw)
+                rep = {"robot": spec.name, "robot_yaml": str(spec_ref), "units_per_metre": 1.0, "calibrated": False,
+                       "base": {"pos": list(base), "yaw_deg": round(float(np.degrees(yaw)), 1)}, "objects": rows}
+                (sim / "checks" / "robot_report.json").write_text(json.dumps(rep, indent=1))
+                self.meta, self.rep, self.arm = load(sim)
+                self._load_robot()
+                sx.value, sy.value = float(base[0]), float(base[1])
+                syaw.value = float(((np.degrees(yaw) + 180) % 360) - 180)
+                ok = sum((r_["reachable_top_down"] and r_["fits_gripper"]) or r_["side"]["feasible"] for r_ in rows)
+                info.content = f"**{spec.name}** placed · can grasp {ok}/{len(rows)} objects"
+                self._update_title()
+            except Exception as e:                                     # a lab's yaml may be wrong: say why
+                info.content = f"**could not load that robot:** {str(e)[:200]}"
+            finally:
+                busy.release()
+
+        @place.on_click
+        def _(_):
+            threading.Thread(target=replan, args=(place.value == "auto place",), daemon=True).start()
 
         @go.on_click
         def _(_):
             if not busy.acquire(blocking=False):
                 return
             try:
-                row = rows[pick.value]
-                o = next(x for x in meta["objects"] if x["body"] == row["body"])
+                row = next(r_ for r_ in self.rep["objects"] if r_["object"] == pick.value)
+                o = next(x for x in self.meta["objects"] if x["body"] == row["body"])
                 frames = []
                 res = run_grasp(self.arm, row, o, self.rep["units_per_metre"], "auto", frames)
                 if "lifted_m" not in res:
@@ -106,6 +141,34 @@ class SimMode:
             finally:
                 busy.release()
         self.set_visible(False)
+
+    def _robot_label(self, choices):
+        return next((k for k, v in choices.items() if Path(str(v)).stem == self.arm.spec.name), next(iter(choices)))
+
+    def _update_title(self):
+        s = self.arm.spec
+        b = self.rep["base"]
+        self.title.content = (f"**{s.name}** · gripper {s.max_opening * 100:.0f} cm · base ({b['pos'][0]:.2f}, "
+                              f"{b['pos'][1]:.2f}), {b['yaw_deg']:.0f}° · units: {self.meta.get('units', 'scene units')}")
+
+    def _load_robot(self):
+        """(Re)create the robot meshes for the current arm."""
+        m, spec = self.arm.m, self.arm.spec
+        if self.robot_root is not None:
+            self.robot_root.remove()
+        self.robot_root = self.server.scene.add_frame("/sim/robot", show_axes=False)
+        self.link_nodes = {}
+        for bid, parts in robot_meshes(m, spec.prefix).items():
+            frame = self.server.scene.add_frame(f"/sim/robot/{m.body(bid).name}", show_axes=False)
+            for j, (v, f, rgb) in enumerate(parts):
+                self.server.scene.add_mesh_simple(f"/sim/robot/{m.body(bid).name}/g{j}", vertices=v, faces=f,
+                                                  color=tuple(int(255 * c) for c in rgb), flat_shading=False)
+            self.link_nodes[bid] = frame
+        self.d = mujoco.MjData(m)
+        mujoco.mj_resetData(m, self.d)
+        self.home = self.d.qpos.copy()
+        self.home[self.arm.qadr] = spec.home
+        self.show(self.home)
 
     def show(self, qpos):
         m, d = self.arm.m, self.d

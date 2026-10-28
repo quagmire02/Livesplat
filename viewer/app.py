@@ -193,17 +193,35 @@ def main():
     allow_meta = os.environ.get("LIVESPLAT_ALLOW_META") == "1"
     sim_dir = a.sim or next((str(Path(a.run_dir) / n) for n in ("sim_m", "sim")
                              if (Path(a.run_dir) / n / "robot_scene.xml").exists()), None)
-    mode_btn = server.gui.add_button("switch to simulation mode", visible=bool(sim_dir))
-    intro = server.gui.add_markdown("**Click** an object to select it. **Drag** the arrows to move it; "
-                                    "let go while moving to throw it.")
-    box = server.gui.add_text("command", "push the bottle left, then make it red")
-    planner = server.gui.add_dropdown("planner", ["local", "meta"]) if allow_meta else None
-    go = server.gui.add_button("run command")
-    log = server.gui.add_markdown("")
-    sel_md = server.gui.add_markdown("_nothing selected_")
-    obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
-    color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
-    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
+    server.gui.configure_theme(
+        titlebar_content={"buttons": ({"text": "LiveSplat  ·  scan it, tag it, play with it", "icon": None,
+                                        "href": None},), "image": None},
+        control_layout="floating", control_width="medium", dark_mode=True, show_logo=False,
+        show_share_button=False, brand_color=(255, 140, 66))
+    tabs = server.gui.add_tab_group()
+    play_tab, clean_tab, sim_tab = tabs.add_tab("Play"), tabs.add_tab("Clean up"), tabs.add_tab("Simulate")
+    head = lambda k: ctrl.label(k).split()[-1]
+    ids_ = [o["id"] for o in sc.objects] + [1, 1, 1]
+    examples = {"push": f"push the {head(ids_[0])} left", "recolour": f"make the {head(ids_[1])} red",
+                "what if": f"what if I knock the {head(ids_[2])} over", "moon": "moon gravity", "reset": "reset"}
+    with play_tab:
+        intro = server.gui.add_markdown("**Click** an object to select it, **drag** the arrows to move it "
+                                        "(let go while moving to throw), or **type** what should happen.")
+        box = server.gui.add_text("command", examples["push"] + ", then make it red")
+        try_btn = server.gui.add_button_group("try", list(examples))
+        planner = server.gui.add_dropdown("planner", ["local", "meta"]) if allow_meta else None
+        go = server.gui.add_button("run command")
+        log = server.gui.add_markdown("")
+        sel_md = server.gui.add_markdown("_nothing selected_")
+        obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
+        color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
+        scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
+    with sim_tab:
+        server.gui.add_markdown("Test **robot arms** on this table: pick an arm, place it, try grasps.")
+        mode_btn = server.gui.add_button("start simulation mode", visible=bool(sim_dir))
+        if not sim_dir:
+            server.gui.add_markdown("_No simulation package yet. Run `python -m sim.export <run> --scale ...` "
+                                    "and `python -m sim.robot <run>/sim_m`._")
     sim_mode = {"obj": None}
     history = []
 
@@ -221,6 +239,11 @@ def main():
         show_selection()
 
     go.on_click(lambda _: run_command(box.value))
+
+    @try_btn.on_click
+    def _(_):
+        box.value = examples[try_btn.value]
+        run_command(box.value)
 
     # ---- selection + gizmo -----------------------------------------------------
     gizmo = server.scene.add_transform_controls("/gizmo", scale=max(0.45 * r, 0.1))
@@ -315,7 +338,8 @@ def main():
     prev_removed = np.load(rm_path) if rm_path.exists() else np.zeros(0, np.int64)   # earlier sessions
     # The whole table column: a glossy top is made of faint splats and reflections below the surface.
     on_table = (sc.bg["means"][:, 2] < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.05)
-    add_btn = server.gui.add_button("add missed object (then click it)")
+    with play_tab:
+        add_btn = server.gui.add_button("add missed object (then click it)")
 
     @add_btn.on_click
     def _(_):
@@ -354,14 +378,14 @@ def main():
         log.content = f"**added object {k}** ({int(sel.sum()):,} splats, {n} views) · try: push object {k}"
         show_selection()
 
-    clean = server.gui.add_folder("clean up background", expand_by_default=False)
-    with clean:
+    with clean_tab:
         server.gui.add_markdown("**Shift + drag** a box to erase background splats.")
         protect = server.gui.add_checkbox("protect table", True)
         radius = server.gui.add_slider("keep within (x table)", 1.0, 4.0, 0.1, 2.5)
         min_op = server.gui.add_slider("min opacity", 0.0, 0.5, 0.01, 0.0)
         auto = server.gui.add_button("auto clean")
         undo_btn = server.gui.add_button("undo erase")
+        clean_widgets = [protect, radius, min_op, auto, undo_btn]
         clean_info = server.gui.add_markdown("")
 
     def apply_bg(sel):
@@ -414,14 +438,15 @@ def main():
             keep[undo_stack.pop()] = True
             refresh_bg()
 
-    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn, clean, add_btn] + ([planner] if planner else [])
+    tabletop_gui = [intro, box, try_btn, go, log, sel_md, obj_btn, color, scene_btn, add_btn, *clean_widgets] + ([planner] if planner else [])
 
     @mode_btn.on_click
     def _(_):
         """Optional Simulation mode: robot + sim package; the tabletop scene and its controls are hidden."""
         if sim_mode["obj"] is None:
             mode_btn.label = "loading simulation mode..."
-            sim_mode["obj"] = SimMode(server, sim_dir)
+            with sim_tab:
+                sim_mode["obj"] = SimMode(server, sim_dir)
         ui["sim"] = not ui["sim"]
         ui["sel"], ui["held"] = None, False
         sim_mode["obj"].set_visible(ui["sim"])
@@ -430,7 +455,7 @@ def main():
         for g in tabletop_gui:
             g.visible = not ui["sim"]
         gizmo.visible = False
-        mode_btn.label = "back to tabletop mode" if ui["sim"] else "switch to simulation mode"
+        mode_btn.label = "back to tabletop mode" if ui["sim"] else "start simulation mode"
 
     @scene_btn.on_click
     def _(_):
