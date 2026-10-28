@@ -109,6 +109,7 @@ def main():
     ap.add_argument("name")
     ap.add_argument("--quality", choices=ORDER, default="low")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-tag", action="store_true", help="skip automatic tagging (Spark + SAM 3.1, paid)")
     a = ap.parse_args()
 
     vw, vh, dur = probe_video(a.video)
@@ -145,6 +146,9 @@ def main():
     py = sys.executable
     if sh([py, "-m", "segment.run", run], log):
         sys.exit(f"segmentation failed, see {log}")
+    if not a.no_tag:                                   # automatic tagging: names, properties, scale, labels
+        if sh([py, "-m", "agent.tag", run], log):
+            print(f"  tagging failed; the scene works without tags. See {log}")
     if p["refine"]:
         rc = sh(["bash", "recon/refine.sh", run, "--iters", p["refine"], "--width", p["refine_width"]], log)
         if rc:

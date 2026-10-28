@@ -85,12 +85,18 @@ def main():
             votes[idx[hit], 0] -= 1
     n_seen = votes.sum(1)
     frac = votes[:, 1:] / np.maximum(n_seen, 1)[:, None]
-    best_k = np.argmax(frac, 1)
-    labels = np.zeros(len(means), np.int32)
-    keep = cand & (n_seen >= 3) & (frac.max(1) >= 0.5)
-    labels[keep] = np.array(ids)[best_k[keep]]
-    unseen = cand & (n_seen < 3)                          # never seen clearly: keep the geometric label
-    labels[unseen] = np.maximum(geo[unseen], 0)
+    best_k = np.array(ids)[np.argmax(frac, 1)]
+    best_f = frac.max(1)
+    # SAM may ADD Gaussians to an object and MOVE them between objects, but never sends object Gaussians
+    # to the background: its masks miss parts of objects in some frames (half a bottle stayed behind).
+    labels = np.maximum(geo, 0).astype(np.int32)
+    seen = cand & (n_seen >= 3)
+    add = seen & (labels == 0) & (best_f >= 0.5)
+    labels[add] = best_k[add]
+    cur = np.clip(labels - 1, 0, len(ids) - 1)
+    cur_f = np.where(labels > 0, frac[np.arange(len(labels)), cur], 0)
+    move = seen & (labels > 0) & (best_k != labels) & (best_f >= 0.6) & (cur_f < 0.2)
+    labels[move] = best_k[move]
     labels = attach_base_and_reflection(pt, labels, r)
     np.save(run / "labels.npy", labels)
     rep = {"keyframes": len(frames), "prompts": {k: props[str(k)]["sam_prompt"] for k in ids},
