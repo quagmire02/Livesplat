@@ -1,0 +1,16 @@
+# Installed by install_venv.sh (torch from the cu124 index).
+torch==2.6.0
+torchvision==0.21.0
+numpy
+scipy
+plyfile
+scikit-learn
+trimesh
+mujoco
+viser
+opencv-python-headless
+pillow
+requests
+pytest
+huggingface_hub
+# sam2: pip install "git+https://github.com/facebookresearch/sam2.git" (SAM2_BUILD_CUDA=0)

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.cache/
+runs/
+*.pt
+*.ply
+!tests/fixtures/*.ply
+.env
