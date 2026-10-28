@@ -71,6 +71,10 @@ class Scene:
             base = np.array([*np.median(a["means"][:, :2], 0), 0.0])
             a["means"] = (a["means"] - base).astype(np.float32)
             solid = solid_points(a)
+            gen = run / "gen" / f"obj_{k}_fill.ply"           # TripoSR completion: unseen back/underside
+            if gen.exists():
+                g = splat.activate(splat.load_raw(gen))
+                a = {key: np.concatenate([a[key], g[key]]).astype(np.float32) for key in a}
             hull = hull_vertices(solid)
             vol = ConvexHull(solid).volume
             refl = None

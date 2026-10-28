@@ -18,3 +18,5 @@ meta-sam-parser
 gsplat==1.5.3
 ninja
 setuptools
+transformers==4.35.0  # TripoSR
+scikit-image
