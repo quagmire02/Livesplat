@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Stage 0b (orbits): global SfM poses, splat training, export for LiveSplat.
-# Usage: recon/sfm_and_train.sh <run_name> [iters] [width]
+# Usage: recon/sfm_and_train.sh <run_name> [iters] [width] [cap]
 # Needs stage 1 done: recon/run_thrift.sh <video> <run_name> --stage cloud
 set -euo pipefail
-NAME=$1; ITERS=${2:-15000}; WIDTH=${3:-1554}      # 1554 = 3*518, aspect exact
+NAME=$1; ITERS=${2:-15000}; WIDTH=${3:-1554}; CAP=${4:-1800000}   # 1554 = 3*518, aspect exact
 THRIFT=${THRIFT_DIR:-$HOME/projects/thriftsplat}
 TPY=${THRIFT_PY:-$THRIFT/.venv/bin/python}
 LPY=${LIVESPLAT_PY:-$HOME/venvs/livesplat/bin/python}
@@ -19,7 +19,7 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 # 2. Train the splat on the SfM scene (ThriftSplat venv, GPU).
 cd "$THRIFT"
 PYTHONPATH="$THRIFT" "$TPY" -m thriftsplat.train_gsplat "$RUN/thrift_sfm/scene" \
-  -o "$RUN/thrift_sfm/splat" --iters "$ITERS" --width "$WIDTH"
+  -o "$RUN/thrift_sfm/splat" --iters "$ITERS" --width "$WIDTH" --cap "$CAP"
 ln -sf splat/splat.ply "$RUN/thrift_sfm/splat.ply"
 
 # 3. Export cameras + keyframes for LiveSplat.

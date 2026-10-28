@@ -37,10 +37,16 @@ Updated: Oct 28 (day 1, evening).
 - Fixes: occupancy flood fill for table extent (glossy top is sparse; objects hide the centre); fragment filter; grow_labels (low-opacity Gaussians were left behind as a ghost column).
 - viewer/app.py: bg + per-object nodes in table frame, manual sliders; bg cropped to 1.6x table radius.
 
-## Next (Oct 29)
-- physics/: MuJoCo world from object hulls, step loop driving Viser nodes, push/drop/reset.
-- measure/: OBB + volume (needs A4 capture for metric check).
-- Viewer start camera looks from a low angle; fix.
+## Day 2 chunks (done)
+- A: base band joins object; glossy mirror image = label -k, shown only at rest.
+- B: physics/world.py (MuJoCo) + viewer GUI; settle test passes; push tips the can.
+- C: recon/build.py presets with VRAM/RAM fallback (dry-run verified).
+- D: recon/refine_objects.py works (lazy native crops, frozen bg). No gain on a 1568 px video (expected); auto-skipped there.
+
+## Next
+- Agent tools + text command box (rule parser local, Spark later).
+- Hole fill under moved objects; viewer start camera.
+- Needs user: 4K capture with A4 sheet (measurement + refinement proof).
 
 ## Blocked / needs user
 - Better captures with an A4 sheet (for metric accuracy).

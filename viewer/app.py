@@ -28,7 +28,9 @@ class Scene:
         self.T = np.array(al["T_world_to_table"])
         self.radius = r = al["radius"]
         self.polygon = np.array(al["polygon"])
-        lab_path = run / "labels.npy" if (run / "labels.npy").exists() else run / "labels_geo.npy"
+        # A refined splat carries its own labels (densification changed the Gaussian count).
+        lab_path = next(p for p in (run / src / "labels.npy", run / "labels.npy", run / "labels_geo.npy")
+                        if p.exists())
         labels = np.load(lab_path)
         raw = splat.transform(splat.load_raw(run / src / "splat.ply"), self.T)
         m = raw["means"]
