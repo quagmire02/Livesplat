@@ -50,6 +50,19 @@ def build_xml(objects, polygon, table_thick, floor_z, gravity=9.81):
 </mujoco>"""
 
 
+def stands_alone(hull, mass=0.3, seconds=1.0, max_tilt_deg=10.0):
+    """Does this collision hull stand on a flat plane without tipping? (Objects stood still in the scan.)"""
+    xml = (f'<mujoco><option timestep="{DT}"/><asset><mesh name="h" vertex="{_vec(hull)}"/></asset>'
+           f'<worldbody><geom type="plane" size="0 0 0.05"/><body pos="0 0 0.001"><freejoint/>'
+           f'<geom type="mesh" mesh="h" mass="{mass}"/></body></worldbody></mujoco>')
+    m = mujoco.MjModel.from_xml_string(xml)
+    d = mujoco.MjData(m)
+    for _ in range(int(seconds / DT)):
+        mujoco.mj_step(m, d)
+    tilt = np.degrees(2 * np.arccos(min(1.0, abs(d.qpos[3]))))
+    return tilt <= max_tilt_deg
+
+
 class World:
     def __init__(self, objects, polygon, table_thick=0.03, floor_z=-0.75):
         self.objects = objects

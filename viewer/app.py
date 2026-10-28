@@ -14,7 +14,7 @@ import numpy as np
 import viser
 from scipy.spatial import ConvexHull
 
-from physics.world import World, hull_vertices
+from physics.world import World, hull_vertices, stands_alone
 from scene_io import splat
 from viewer.holefill import fill_splat
 
@@ -71,10 +71,16 @@ class Scene:
             base = np.array([*np.median(a["means"][:, :2], 0), 0.0])
             a["means"] = (a["means"] - base).astype(np.float32)
             solid = solid_points(a)
-            gen = run / "gen" / f"obj_{k}_fill.ply"           # TripoSR completion: unseen back/underside
+            gen = run / "gen" / f"obj_{k}.obj"                # TripoSR mesh: collision shape only (visual = splat)
             if gen.exists():
-                g = splat.activate(splat.load_raw(gen))
-                a = {key: np.concatenate([a[key], g[key]]).astype(np.float32) for key in a}
+                import trimesh
+                V = np.asarray(trimesh.load(gen, process=False).vertices, np.float32)
+                band = V[V[:, 2] < V[:, 2].min() + 0.1 * np.ptp(V[:, 2])]          # flat base on the table
+                V = np.concatenate([V, np.c_[band[:, :2], np.zeros(len(band))]])
+                if stands_alone(hull_vertices(V)):           # unstable meshes fall back to the scan hull
+                    solid = V
+                else:
+                    print(f"  obj {k}: generated collision mesh tips over -> scan hull")
             hull = hull_vertices(solid)
             vol = ConvexHull(solid).volume
             refl = None

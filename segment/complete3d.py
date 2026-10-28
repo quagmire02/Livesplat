@@ -186,13 +186,12 @@ def main():
         v, info = align(np.asarray(mesh.vertices), pts)
         mesh = trimesh.Trimesh(v, mesh.faces, vertex_colors=mesh.visual.vertex_colors, process=False)
         mesh.export(out / f"obj_{k}.obj")
-        gap = 0.012 * al["radius"]
-        fill = fill_gaussians(mesh, pts, raw["shN"].shape[1], gap)
-        splat.save_raw(out / f"obj_{k}_fill.ply", fill)
-        rep[k] = {**info, "mesh_vertices": int(len(v)), "fill_gaussians": int(len(fill["means"])),
-                  "frame": f["name"], "mesh_height": float(np.ptp(v[:, 2])), "scan_height": float(np.percentile(pts[:, 2], 98))}
-        print(f"obj {k}: {len(v):,} verts, yaw {info['yaw_deg']:.0f}, chamfer {info['chamfer']:.4f}, "
-              f"fill {len(fill['means']):,} Gaussians", flush=True)
+        old_fill = out / f"obj_{k}_fill.ply"                   # visuals stay the scan splat
+        if old_fill.exists():
+            old_fill.unlink()
+        rep[k] = {**info, "mesh_vertices": int(len(v)), "frame": f["name"],
+                  "mesh_height": float(np.ptp(v[:, 2])), "scan_height": float(np.percentile(pts[:, 2], 98))}
+        print(f"obj {k}: {len(v):,} verts, yaw {info['yaw_deg']:.0f}, chamfer {info['chamfer']:.4f}", flush=True)
     (out / "complete3d.json").write_text(json.dumps(rep, indent=1))
 
 

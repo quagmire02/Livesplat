@@ -149,6 +149,8 @@ def main():
     if not a.no_tag:                                   # automatic tagging: names, properties, scale, labels
         if sh([py, "-m", "agent.tag", run], log):
             print(f"  tagging failed; the scene works without tags. See {log}")
+        elif sh([py, "-m", "segment.complete3d", run, "--res", "256"], log):   # collision meshes (TripoSR)
+            print(f"  3D completion failed; collision uses the scan hull. See {log}")
     if p["refine"]:
         rc = sh(["bash", "recon/refine.sh", run, "--iters", p["refine"], "--width", p["refine_width"]], log)
         if rc:
