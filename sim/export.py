@@ -31,6 +31,35 @@ def camera_xml(name, c2w, K, H):
     return f'<camera name="{name}" pos="{_f(c2w[:3, 3])}" xyaxes="{_f(x)} {_f(y)}" fovy="{fovy:.4g}"/>'
 
 
+def primitive_stack(hull_pts, band=0.04, max_bands=5):
+    """Collision as a stack of cylinders/boxes, one per height band, fitted to the hull cross-section.
+    Convex mesh vs gripper pads gives one contact point and grasps slip; primitives grasp reliably.
+    Returns list of dicts {type: cylinder|box, pos (3,), size (3,), yaw}."""
+    mesh = trimesh.convex.convex_hull(hull_pts)
+    z0, z1 = mesh.bounds[:, 2]
+    n = int(np.clip(round((z1 - z0) / band), 1, max_bands))
+    edges = np.linspace(z0, z1, n + 1)
+    out = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        sec = mesh.section(plane_origin=[0, 0, (a + b) / 2], plane_normal=[0, 0, 1])
+        if sec is None or len(sec.vertices) < 3:
+            continue
+        xy = np.asarray(sec.vertices)[:, :2]
+        c = (xy.max(0) + xy.min(0)) / 2
+        ev, evec = np.linalg.eigh(np.cov((xy - c).T))
+        ax = evec[:, 1]                                       # major axis
+        p1, p2 = (xy - c) @ ax, (xy - c) @ np.array([-ax[1], ax[0]])
+        e1, e2 = np.ptp(p1), np.ptp(p2)
+        c = c + ax * (p1.max() + p1.min()) / 2 + np.array([-ax[1], ax[0]]) * (p2.max() + p2.min()) / 2
+        half = (b - a) / 2
+        if e1 / max(e2, 1e-9) < 1.2:
+            out.append({"type": "cylinder", "pos": [c[0], c[1], (a + b) / 2], "size": [(e1 + e2) / 4, half, 0], "yaw": 0.0})
+        else:
+            out.append({"type": "box", "pos": [c[0], c[1], (a + b) / 2], "size": [e1 / 2, e2 / 2, half],
+                        "yaw": float(np.arctan2(ax[1], ax[0]))})
+    return out
+
+
 def inertia_of(hull_pts, mass):
     m = trimesh.convex.convex_hull(hull_pts)
     m.density = mass / max(m.volume, 1e-12)
@@ -52,7 +81,7 @@ def urdf(name, mesh_rel, vis_rel, rgba, mass, com, I, mu):
 """
 
 
-def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
+def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collision="primitives"):
     run = Path(run_dir)
     out = Path(out) if out else run / "sim"
     if out.exists():
@@ -112,10 +141,21 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
         assets += [f'<mesh name="{tag}_col" file="{tag}_collision.obj"/>',
                    f'<mesh name="{tag}_vis" file="{tag}_visual.obj"/>']
         damp = max(0.05, 1.0 - e)
+        cols = []
+        if collision == "mesh":
+            cols.append(f'<geom name="{tag}_col" type="mesh" mesh="{tag}_col" ')
+        else:
+            for j, pr in enumerate(primitive_stack(o["hull"])):
+                q = [np.cos(pr["yaw"] / 2), 0, 0, np.sin(pr["yaw"] / 2)]
+                cols.append(f'<geom name="{tag}_col{"" if j == 0 else j}" type="{pr["type"]}" pos="{_f(pr["pos"])}" '
+                            f'size="{_f(pr["size"][:2] if pr["type"] == "cylinder" else pr["size"])}" quat="{_f(q)}" ')
+        col_xml = "".join(c + f'mass="0" friction="{mu:.4g} 0.005 0.0001" solref="0.004 {damp:.3g}" condim="4" '
+                          f'group="3" rgba="{_f(rgba)}"/>' for c in cols)
         bodies.append(
             f'<body name="{tag}" pos="{_f(o["base"])}"><freejoint name="{tag}_free"/>'
-            f'<geom name="{tag}_col" type="mesh" mesh="{tag}_col" mass="{o["mass"]:.6g}" '
-            f'friction="{mu:.4g} 0.005 0.0001" solref="0.004 {damp:.3g}" condim="4" group="3" rgba="{_f(rgba)}"/>'
+            f'<inertial pos="{_f(com)}" mass="{o["mass"]:.6g}" '
+            f'fullinertia="{I[0, 0]:.6g} {I[1, 1]:.6g} {I[2, 2]:.6g} {I[0, 1]:.6g} {I[0, 2]:.6g} {I[1, 2]:.6g}"/>'
+            f'{col_xml}'
             f'<geom name="{tag}_vis" type="mesh" mesh="{tag}_vis" contype="0" conaffinity="0" group="1" '
             f'mass="0" rgba="{_f(rgba)}"/></body>')
         p = props.get(str(k), {})
@@ -132,7 +172,8 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
             "center_of_mass_local": np.asarray(com).round(5).tolist(),
             "files": {"collision": f"meshes/{tag}_collision.obj", "visual": f"meshes/{tag}_visual.obj",
                       "urdf": f"urdf/{tag}.urdf", "splat": f"splats/{tag}.ply"},
-            "uncertainty": "collision = convex hull of visible surface; flat footprint (underside not seen); "
+            "collision_model": collision,
+            "uncertainty": "collision = " + ("stack of cylinders/boxes fitted to the hull per 4 cm band" if collision == "primitives" else "convex hull") + " of the visible surface; flat footprint (underside not seen); "
                            "mass/friction are estimates",
         })
 
@@ -151,7 +192,7 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
 
     xml = f"""<mujoco model="livesplat_{run.name}">
   <compiler meshdir="meshes" angle="radian"/>
-  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast" cone="elliptic" impratio="10"><flag multiccd="enable"/></option>
   <visual><global offwidth="{cams['width']}" offheight="{H}"/></visual>
   <asset>
     <mesh name="table" file="table.obj"/>
@@ -242,9 +283,11 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--cam-every", type=int, default=8)
     ap.add_argument("--bg-crop", type=float, default=0.0, help="keep background within this x table radius; 0 = full room")
+    ap.add_argument("--collision", choices=["primitives", "mesh"], default="primitives",
+                    help="stack of fitted cylinders/boxes (grasps hold) or one convex hull mesh")
     ap.add_argument("--test", action="store_true")
     a = ap.parse_args()
-    out = export(a.run_dir, a.src, a.out, a.cam_every, a.bg_crop)
+    out = export(a.run_dir, a.src, a.out, a.cam_every, a.bg_crop, a.collision)
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
     print(f"sim package -> {out} ({size:.0f} MB)")
     if a.test:

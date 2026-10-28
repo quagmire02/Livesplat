@@ -60,9 +60,16 @@ def make_variant(sim, meta, xml_text, rng, i):
         body = root.find(f".//body[@name='{o['body']}']")
         body.set("pos", " ".join(f"{v:.6g}" for v in pos))
         body.set("quat", " ".join(f"{v:.6g}" for v in q))
-        col = body.find(f"geom[@name='{o['body']}_col']")
-        col.set("mass", f"{mass:.6g}")
-        col.set("friction", f"{mu:.4g} 0.005 0.0001")
+        inert = body.find("inertial")
+        if inert is not None:                               # primitive stacks: mass lives in <inertial>
+            s_ = mass / float(inert.get("mass"))
+            inert.set("mass", f"{mass:.6g}")
+            inert.set("fullinertia", " ".join(f"{float(v) * s_:.6g}" for v in inert.get("fullinertia").split()))
+        for g in body.findall("geom"):
+            if g.get("name", "").startswith(f"{o['body']}_col"):
+                g.set("friction", f"{mu:.4g} 0.005 0.0001")
+                if inert is None:
+                    g.set("mass", f"{mass:.6g}")
         o_v["pose"] = {"pos": pos, "quat_wxyz": q}
         o_v["mass"] = {"value": mass, "source": "randomized"}
         o_v["friction"] = {"value": mu, "source": "randomized"}
