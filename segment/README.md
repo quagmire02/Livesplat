@@ -1,8 +1,7 @@
-# segment/ — stages 1–3
+# segment/ — table and objects (stages 1–2)
 Files:
-- plane.py — look_at_point, orbit_up, ransac_plane, find_table (densest height in cylinder + occupancy flood fill for extent).
-- cluster.py — in_polygon, cluster_objects, grow_labels, attach_base_and_reflection (base band joins object; below-plane mirror image -> label -k), clean_edges.
-- run.py — CLI: `python -m segment.run <run_dir>` -> align.json, labels_geo.npy, topdown.jpg.
-Inputs: <run_dir>/thrift/{splat.ply, export/cameras.json}. Outputs: <run_dir>/align.json, labels_geo.npy, topdown.jpg.
-Planned: sam_vote.py (optional names/split).
-Status: table1: table + 3 objects correct. grow_labels removes ghost columns.
+- plane.py — find_table: up = camera-orbit normal; table height = densest height in a cylinder; table extent = occupancy flood fill.
+- cluster.py — cluster_objects (DBSCAN above the table), grow_labels (adds faint Gaussians near an object), attach_base_and_reflection (base joins the object; mirror image below the table gets label -k), clean_edges.
+- run.py — `python -m segment.run <run_dir> [--src thrift_sfm]`. Writes align.json, labels_geo.npy, topdown.jpg.
+Limit: Touching objects become one object. SAM split is not done.
+Status: table1 gives the table and 3 correct objects.

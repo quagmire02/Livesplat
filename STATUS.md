@@ -54,9 +54,8 @@ Updated: Oct 28 (day 1, evening).
 - Spark round 1 (approved): names + props for 3 objects ($0.011) - names right; toilet roll mass 0.02 kg is wrong (empty-tube guess). Planner 4/5 on free wording ($0.022); miss = looked up objects then stopped -> multi-round tool loop written, NOT yet tested (no API until base features done).
 - Total API spend $0.0511.
 
-## Product direction (open)
-- User rejected: shake test as product, pack/ship, size check, physics lab (need exact measures / manual anyway).
-- Proposed: real-to-sim export for robotics (MJCF + per-object splats + metadata, reach/grasp check). Waiting for user decision.
+## Product direction
+- Chosen: real-to-sim for robotics. Branch real-to-sim. Plan: docs/REAL_TO_SIM.md.
 
 ## Blocked / needs user
 - Better captures with an A4 sheet (for metric accuracy).

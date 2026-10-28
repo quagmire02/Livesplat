@@ -115,7 +115,9 @@ agent/        tool schema, parser, properties, planner
 backends/     local/ and meta/ model adapters, disk cache, budget guard
 viewer/       Viser app: per-object splat nodes, click/drag, command box
 eval/         accuracy table vs known objects
-spikes/       day-1 go/no-go scripts (delete after day 2)
+spikes/       go/no-go scripts and paid checks
+sim/          real-to-sim export, render, robot checks (branch real-to-sim)
+docs/         plans (REAL_TO_SIM.md)
 tests/        unit tests + one small cached fixture scene
 ```
 

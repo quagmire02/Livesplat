@@ -1,7 +1,6 @@
 # viewer/ — Viser app
 Files:
-- app.py — Scene (bg crop, per-object splat + reflection + fill, outlier-filtered hull with flat footprint, mass, floor). main(): compact floating panel (command box, log, selection, button groups); click-to-select (physics/pick.py ray vs hull); transform gizmo at mid-height drags the object kinematically, release while moving = throw (>0.5 m/s, 60%, cap 2.5); 60 Hz physics loop.
-- holefill.py — fill_splat: flat Gaussian grid on the object footprint, colour = IDW of table ring (brightness outliers dropped). Shown while the object is away from rest.
-Node rules: reflection follows its object (xy + yaw) while upright on the table; hidden when lifted/tipped/off. Fill visible when not at rest.
-Notes: GUI state is shared by all browser clients. Gizmo with disable_sliders/depth_test options rendered NaN lines; use defaults.
-Status: commands, recolour, stack, hole fill verified on table1.
+- app.py — Scene (background crop, object splats, reflection splats, fill splats, hulls, props.json). Compact panel: command box, log, selection, button groups. Click selects. The gizmo moves the object. Release while moving throws it. Physics runs at 60 Hz.
+- holefill.py — Flat Gaussians on the object footprint. Colour comes from the table ring around it.
+Run: `python -m viewer.app <run_dir>`, then open http://localhost:8080.
+Notes: All browser clients share one panel. Do not use the disable_sliders or depth_test options of the gizmo (NaN lines).

@@ -1,10 +1,10 @@
-# recon/ — stage 0 (reconstruction) + quality presets
+# recon/ — video to splat (stage 0)
+Purpose: Make a trained splat from a video. Use ThriftSplat in its own venv.
 Files:
-- build.py — ONE COMMAND: `python -m recon.build <video> <name> --quality low|medium|high [--dry-run]`. Probes video, free VRAM/RAM; lowers preset until estimates fit; retries lower on OOM. Writes runs/<name>/{build.json, build.log}.
-- run_thrift.sh — stage 1 (cloud) via ThriftSplat venv.
-- sfm_and_train.sh — global SfM (pycolmap, LiveSplat venv) -> train_gsplat (iters, width, cap) -> export. Skips SfM if done.
-- export_thrift.py — <run>/export/cameras.json + keyframes. c2w includes pose_delta.
-- refine.sh / refine_objects.py — object-focused refinement ("zoom"): only object Gaussians train + densify on native-res crops; background frozen, no pruning; labels carried through densify; held-out crop PSNR before/after. Frames load lazily (crops only in RAM).
-Presets: low fps2/15k/1554/1.8M; medium fps3/20k/1554/2.0M/refine 3k; high fps4/25k/<=2072/2.2M/refine 6k.
-Refinement only runs when the video is >= 1.25x wider than the training width (else no new pixels).
-Status: table1 low done. Refinement on table1 (1568 px video): no gain (-0.03 dB no-densify, -0.9 dB with densify, 1k iters) -> correctly auto-skipped. Needs a 4K capture to show gain.
+- build.py — One command. `python -m recon.build <video> <name> --quality low|medium|high [--dry-run]`. It checks VRAM and RAM. It lowers the preset if the estimate does not fit. It tries again lower after out-of-memory.
+- run_thrift.sh — Stage 1: video to point cloud and poses.
+- sfm_and_train.sh — Global SfM (pycolmap), then splat training, then export. It skips SfM if done.
+- export_thrift.py — Writes export/cameras.json and keyframes. Poses include pose_delta.
+- refine.sh, refine_objects.py — Object refinement on native-resolution crops. Background stays frozen. Use only if the video is wider than the training width.
+Inputs: video. Outputs: runs/<name>/{thrift, thrift_sfm, build.json, build.log}.
+Status: Works on table1 (low). Refinement gives no gain on a 1568 px video. A 4K video is necessary to show a gain.

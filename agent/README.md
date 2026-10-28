@@ -1,10 +1,8 @@
 # agent/ — tools, planner, controller
 Files:
-- schema.py — TOOLS (OpenAI function format, sent as-is to Spark), COLORS, validate(call) with numeric limits; simulate may only contain push/drop/throw/stack.
-- controller.py — Controller(scene, world, run_dir, on_appearance, camera): resolves names (names.json first, then auto: colour, "object k", "tallest"), camera-relative directions, runs tools t_*. simulate saves/restores physics state.
-- parser.py — local rule planner: normalize() (synonyms, typo fix via difflib, "everything"), clause rules; splits on , ; then also, and+verb. "what if/would/will" -> simulate. "it" -> last object or GUI selection. Unknown clauses get a hint.
-- planner.py — handle(text, ctrl, backend, default): local -> parser; meta -> run_meta tool-use loop (max 3 rounds; continues after look-up-only rounds). Multi-round path untested with paid calls.
-Tools: list_objects, measure, push, drop, throw, stack, set_mass, set_friction, set_bounce, set_gravity, set_color, scale, remove, restore, reset (FULL: poses, colours, sizes, removed, properties, gravity), simulate.
-Names: <run>/names.json {id: [names]} — fixture for table1 in tests/fixtures; Spark vision will write it later.
-Status: 15 tests pass on table1. Unknown requests are reported, never guessed.
-- properties.py — Spark vision per object (largest clean keyframe crop) -> names.json + props.json (viewer uses mass/friction/bounce). Paid; run only in approved API rounds.
+- schema.py — 16 tools (OpenAI function format, also sent to Spark). validate() checks names, ranges, enums.
+- controller.py — Runs tools. Finds objects by name (names.json, then automatic names). Directions are relative to the camera. reset is FULL: poses, colours, sizes, removed objects, properties, gravity.
+- parser.py — Local rules (free). normalize() changes synonyms and typos. "what if/would/will" gives simulate. "it" = last object or the selected object.
+- planner.py — handle(): local = parser; meta = Spark tool loop (max 3 rounds). The multi-round path is not tested with paid calls.
+- properties.py — Spark vision, one crop per object. Writes names.json and props.json. Paid.
+Status: 28 tests pass. Spark round 1: names correct, planner 4/5.
