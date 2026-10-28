@@ -52,7 +52,7 @@ def urdf(name, mesh_rel, vis_rel, rgba, mass, com, I, mu):
 """
 
 
-def export(run_dir, src="thrift_sfm", out=None, cam_every=8):
+def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0):
     run = Path(run_dir)
     out = Path(out) if out else run / "sim"
     if out.exists():
@@ -76,7 +76,8 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8):
                           if p.exists()))
     raw = splat.transform(splat.load_raw(run / src / "splat.ply"), sc.T)
     m = raw["means"]
-    near = (np.linalg.norm(m[:, :2], axis=1) < 1.6 * r) & (m[:, 2] > -2.5 * r) & (m[:, 2] < 2.0 * r)
+    near = np.ones(len(m), bool) if bg_crop <= 0 else \
+        (np.linalg.norm(m[:, :2], axis=1) < bg_crop * r) & (m[:, 2] > -2.5 * r) & (m[:, 2] < 2.0 * r)
     splat.save_raw(out / "splats" / "background.ply", splat.subset(raw, (labels == 0) & near))
 
     objs_meta, bodies, assets = [], [], []
@@ -174,6 +175,7 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8):
     }
     (out / "metadata.json").write_text(json.dumps(meta, indent=1))
     (out / "README.md").write_text(PACKAGE_README.format(name=run.name, n=len(objs_meta)))
+    shutil.copy(Path(__file__).with_name("render.py"), out / "render.py")       # self-contained renderer
     return out
 
 
@@ -228,9 +230,10 @@ def main():
     ap.add_argument("--src", default="thrift_sfm")
     ap.add_argument("--out")
     ap.add_argument("--cam-every", type=int, default=8)
+    ap.add_argument("--bg-crop", type=float, default=0.0, help="keep background within this x table radius; 0 = full room")
     ap.add_argument("--test", action="store_true")
     a = ap.parse_args()
-    out = export(a.run_dir, a.src, a.out, a.cam_every)
+    out = export(a.run_dir, a.src, a.out, a.cam_every, a.bg_crop)
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
     print(f"sim package -> {out} ({size:.0f} MB)")
     if a.test:

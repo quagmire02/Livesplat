@@ -15,3 +15,6 @@ pytest
 huggingface_hub
 # sam2: pip install "git+https://github.com/facebookresearch/sam2.git" (SAM2_BUILD_CUDA=0)
 meta-sam-parser
+gsplat==1.5.3
+ninja
+setuptools
