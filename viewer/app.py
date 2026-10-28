@@ -102,6 +102,8 @@ def main():
 
     from agent.controller import Controller
     from agent.planner import handle
+    from agent.schema import COLORS
+    from physics.pick import pick
 
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -115,9 +117,11 @@ def main():
     r = sc.radius
     server = viser.ViserServer(port=a.port)
     server.scene.set_up_direction("+z")
+    server.gui.configure_theme(control_layout="floating", control_width="medium", show_logo=False)
     add_splat(server, "/bg", sc.bg)
     nodes, refl_nodes, fill_nodes = {}, {}, {}
     cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r])}
+    ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": False}
 
     def build_nodes(k):
         o = next(o for o in sc.objects if o["id"] == k)
@@ -134,9 +138,6 @@ def main():
         build_nodes(o["id"])
     ctrl = Controller(sc, world, a.run_dir, on_appearance=build_nodes, camera=lambda: (cam["pos"], cam["look"]))
     print(f"{len(sc.objects)} objects, table radius {r:.3f}, floor z {sc.floor_z:.3f}")
-    for o in sc.objects:
-        print(f"  {o['id']} {ctrl.names[o['id']][:3]}: volume {o['volume'] * 1e6:.0f} cm3, mass {o['mass']:.3f} kg, "
-              f"fill {'yes' if o['fill'] is not None else 'no'}")
 
     @server.on_client_connect
     def _(client):
@@ -147,77 +148,158 @@ def main():
         def _(c):
             cam["pos"], cam["look"] = np.array(c.position), np.array(c.look_at)
 
-    # ---- command box -------------------------------------------------------
+    # ---- panel (compact) -----------------------------------------------------
     allow_meta = os.environ.get("LIVESPLAT_ALLOW_META") == "1"
-    with server.gui.add_folder("command"):
-        backend = server.gui.add_dropdown("planner", ["local", "meta"] if allow_meta else ["local"])
-        box = server.gui.add_text("say", "push the tallest object left")
-        go = server.gui.add_button("run")
-        out = server.gui.add_markdown("")
+    server.gui.add_markdown("**Click** an object to select it. **Drag** the arrows to move it; "
+                            "let go while moving to throw it.")
+    box = server.gui.add_text("command", "push the bottle left, then make it red")
+    planner = server.gui.add_dropdown("planner", ["local", "meta"]) if allow_meta else None
+    go = server.gui.add_button("run command")
+    log = server.gui.add_markdown("")
+    sel_md = server.gui.add_markdown("_nothing selected_")
+    obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
+    color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
+    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
     history = []
 
     def run_command(text):
         with lock:
-            results, note = handle(text, ctrl, backend.value, default=int(pick.value))
+            results, note = handle(text, ctrl, planner.value if planner else "local", default=ui["sel"])
         lines = [f"**> {text}**"] + [f"- `{c['name']}` → {res}" for c, res in results]
         if note:
             lines.append(f"- _{note}_")
         history[:0] = ["\n".join(lines)]
-        out.content = "\n\n".join(history[:6])
+        log.content = "\n\n".join(history[:3])
         print("\n".join(lines), flush=True)
+        show_selection()
 
-    @go.on_click
-    def _(_):
-        run_command(box.value)
+    go.on_click(lambda _: run_command(box.value))
 
-    # ---- direct controls -----------------------------------------------------
-    ids = [str(o["id"]) for o in sc.objects]
-    pick = server.gui.add_dropdown("object", ids)
-    with server.gui.add_folder("actions", expand_by_default=False):
-        for d in ("left", "right", "away", "toward"):
-            server.gui.add_button(f"push {d}").on_click(
-                lambda _, d=d: run_command(f"push object {pick.value} {d}"))
-        server.gui.add_button("drop").on_click(lambda _: run_command(f"drop object {pick.value}"))
-        server.gui.add_button("throw").on_click(lambda _: run_command(f"throw object {pick.value}"))
-        server.gui.add_button("reset").on_click(lambda _: run_command("reset"))
-    with server.gui.add_folder("world", expand_by_default=False):
-        s_grav = server.gui.add_slider("gravity m/s2", 0.0, 25.0, 0.1, 9.81)
-        paused = server.gui.add_checkbox("pause", False)
+    # ---- selection + gizmo -----------------------------------------------------
+    gizmo = server.scene.add_transform_controls("/gizmo", scale=max(0.45 * r, 0.1))
+    gizmo.visible = False                       # (disable_sliders/depth_test options gave NaN lines)
 
-    @s_grav.on_update
-    def _(_):
+    def mid_offset(k, q):
+        """Gizmo sits at the object's mid-height, not buried at its base."""
+        from scipy.spatial.transform import Rotation
+        h = ctrl.obj(k)["hull"][:, 2].max()
+        return Rotation.from_quat([q[1], q[2], q[3], q[0]]).as_matrix() @ np.array([0.0, 0.0, 0.5 * h])
+
+    def show_selection():
+        k = ui["sel"]
+        if k is None or not world.present(k):
+            ui["sel"] = None
+            gizmo.visible = False
+            sel_md.content = "_nothing selected_"
+            return
+        o = ctrl.obj(k)
+        sel_md.content = (f"**{ctrl.label(k)}** · {o['mass']:.2f} kg · friction {o['friction']:.2f} "
+                          f"· size x{o['scale']:.2g}")
+        gizmo.visible = True
+
+    @server.scene.on_click()
+    def _(ev):
         with lock:
-            world.set_gravity(s_grav.value)
+            k = pick(ev.ray_origin, ev.ray_direction, sc.objects, world)
+        ui["sel"] = k
+        if k is not None:
+            p, q = world.pose(k)
+            gizmo.position, gizmo.wxyz = tuple(p + mid_offset(k, q)), tuple(q)
+        show_selection()
+
+    @gizmo.on_drag_start
+    def _(_):
+        if ui["sel"] is not None:
+            ui["held"], ui["trail"] = True, []
+
+    @gizmo.on_update
+    def _(_):
+        if ui["held"]:
+            q = np.array(gizmo.wxyz)
+            ui["target"] = (np.array(gizmo.position) - mid_offset(ui["sel"], q), q)
+            ui["trail"] = (ui["trail"] + [(time.time(), np.array(gizmo.position))])[-6:]
+
+    @gizmo.on_drag_end
+    def _(_):
+        ui["held"] = False
+        k, tr = ui["sel"], ui["trail"]
+        if k is None or len(tr) < 2:
+            return
+        (t0, p0), (t1, p1) = tr[0], tr[-1]
+        if time.time() - t1 < 0.15 and t1 > t0:              # still moving at release: throw
+            v = 0.6 * (p1 - p0) / (t1 - t0)
+            s = np.linalg.norm(v)
+            if s > 0.5:                                    # a slow release just puts it down
+                v = v * min(1.0, 2.5 / s)
+                with lock:
+                    world.throw(k, tuple(v))
+
+    @obj_btn.on_click
+    def _(_):
+        if ui["sel"] is None:
+            log.content = "_select an object first (click it)_"
+            return
+        verb = {"push": "push", "drop": "drop", "throw": "throw", "remove": "remove"}[obj_btn.value]
+        run_command(f"{verb} object {ui['sel']}" + (" away" if verb == "push" else ""))
+
+    @color.on_update
+    def _(_):
+        if ui["sel"] is None:
+            return
+        k = ui["sel"]
+        if color.value == "(original)":
+            o = ctrl.obj(k)
+            o["splat"]["rgb"] = o["rgb0"].copy()
+            build_nodes(k)
+        else:
+            run_command(f"make object {k} {color.value}")
+
+    @scene_btn.on_click
+    def _(_):
+        v = scene_btn.value
+        if v == "reset":
+            run_command("reset")
+        elif v == "pause":
+            ui["paused"] = not ui["paused"]
+            log.content = "_paused_" if ui["paused"] else "_running_"
+        else:
+            run_command("moon gravity" if v == "moon g" else "earth gravity")
 
     # ---- loop ----------------------------------------------------------------
     frame = 1 / 60
     while True:
         t0 = time.time()
-        if not paused.value:
+        if not ui["paused"]:
             with lock:
+                k = ui["sel"]
+                if ui["held"] and k is not None and world.present(k) and ui["target"] is not None:
+                    world.place(k, *ui["target"])                 # held: follow the gizmo
                 world.step(frame)
                 state = {}
                 for o in sc.objects:
-                    k = o["id"]
-                    present = world.present(k)
-                    pose = world.pose(k) if present else None
-                    # Upright on the table: the reflection (part of a glossy object's look) follows it.
-                    upright = present and abs(pose[0][2] - world.rest[k][2]) < 0.01 and abs(pose[1][0]) > 0.996
-                    state[k] = (present, pose, world.at_rest_pose(k), upright)
+                    kk = o["id"]
+                    present = world.present(kk)
+                    pose = world.pose(kk) if present else None
+                    upright = present and abs(pose[0][2] - world.rest[kk][2]) < 0.01 and abs(pose[1][0]) > 0.996
+                    state[kk] = (present, pose, world.at_rest_pose(kk), upright)
             with server.atomic():
-                for k, (present, pose, rest, upright) in state.items():
-                    nodes[k].visible = present
+                for kk, (present, pose, rest, upright) in state.items():
+                    nodes[kk].visible = present
                     if present:
-                        nodes[k].position, nodes[k].wxyz = tuple(pose[0]), tuple(pose[1])
-                    if k in refl_nodes:
-                        refl_nodes[k].visible = upright
+                        nodes[kk].position, nodes[kk].wxyz = tuple(pose[0]), tuple(pose[1])
+                    if kk in refl_nodes:
+                        refl_nodes[kk].visible = upright
                         if upright:
                             w_, z_ = pose[1][0], pose[1][3]           # yaw-only part of the rotation
                             n_ = max(np.hypot(w_, z_), 1e-9)
-                            refl_nodes[k].position = (pose[0][0], pose[0][1], 0.0)
-                            refl_nodes[k].wxyz = (w_ / n_, 0.0, 0.0, z_ / n_)
-                    if k in fill_nodes:
-                        fill_nodes[k].visible = not rest
+                            refl_nodes[kk].position = (pose[0][0], pose[0][1], 0.0)
+                            refl_nodes[kk].wxyz = (w_ / n_, 0.0, 0.0, z_ / n_)
+                    if kk in fill_nodes:
+                        fill_nodes[kk].visible = not rest
+                k = ui["sel"]
+                if k is not None and not ui["held"] and state.get(k, (False,))[0]:
+                    gp, gq = state[k][1]
+                    gizmo.position, gizmo.wxyz = tuple(gp + mid_offset(k, gq)), tuple(gq)
         time.sleep(max(0.0, frame - (time.time() - t0)))
 
 

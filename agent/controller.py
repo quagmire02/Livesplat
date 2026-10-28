@@ -28,6 +28,7 @@ class Controller:
         for o in self.sc.objects:
             o.setdefault("rgb0", o["splat"]["rgb"].copy())
             o.setdefault("scale", 1.0)
+            o.setdefault("defaults", {"mass": o["mass"], "friction": o["friction"], "bounce": o["bounce"]})
 
     # ---- names -------------------------------------------------------------
     def _names(self, run):
@@ -206,8 +207,26 @@ class Controller:
         return f"restored {self.label(k)}"
 
     def t_reset(self):
-        self.w.reset()
-        return "reset all objects to their start poses"
+        """Everything back to the capture: poses, colours, sizes, removed objects, properties, gravity."""
+        for o in self.sc.objects:
+            k = o["id"]
+            changed = o["scale"] != 1.0 or not np.array_equal(o["splat"]["rgb"], o["rgb0"])
+            if o["scale"] != 1.0:
+                f = 1.0 / o["scale"]
+                for part in (o["splat"], o.get("refl")):
+                    if part is not None:
+                        part["means"] = part["means"] * f
+                        part["scales"] = part["scales"] * f
+                o["hull"] = o["hull"] * f
+                o["scale"] = 1.0
+            o["splat"]["rgb"] = o["rgb0"].copy()
+            o.update(o["defaults"])
+            o["removed"] = False
+            if changed:
+                self.on_appearance(k)
+        self.w.gravity = 9.81
+        self.w._build(keep=False)                          # fresh model: rest poses, zero velocity
+        return "reset everything: positions, colours, sizes, removed objects, properties, gravity"
 
     def t_simulate(self, actions, seconds=2.0):
         """Run actions on a saved state, report, then restore. Deterministic."""

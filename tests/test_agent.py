@@ -54,3 +54,28 @@ def test_run_scene():
 def test_it_defaults_to_selection():
     calls, unknown = parser.parse("make it red", NAMES, default=2)
     assert calls == [{"name": "set_color", "args": {"obj": "2", "color": "red"}}], (calls, unknown)
+
+
+@pytest.mark.parametrize("text,first", [
+    ("shove the botle to the left", "push"),          # synonym + typo
+    ("knock the can over", "push"),
+    ("let the roll fall from 40cm", "drop"),
+    ("yeet the can", "throw"),
+    ("get rid of the roll", "remove"),
+    ("colour the can green", "set_color"),
+    ("put the roll on top of the bottle", "stack"),
+    ("enlarge the roll", "scale"),
+    ("can you gently nudge the bottle", "push"),
+    ("start over", "reset"),
+    ("would the can fall if I push it hard", "simulate"),
+])
+def test_wording_variants(text, first):
+    calls, unknown = parser.parse(text, NAMES)
+    assert calls and calls[0]["name"] == first, (calls, unknown)
+
+
+def test_all_and_and():
+    calls, _ = parser.parse("drop everything", NAMES)
+    assert [c["name"] for c in calls] == ["drop"] * 3
+    calls, _ = parser.parse("push the can left and drop the roll", NAMES)
+    assert [c["name"] for c in calls] == ["push", "drop"]

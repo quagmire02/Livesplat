@@ -16,6 +16,53 @@ DIR_WORDS = {"left": "left", "right": "right", "forward": "forward", "forwards":
              "toward me": "toward", "towards me": "toward", "closer": "toward"}
 
 
+# Synonyms -> canonical words the clause rules know. Order matters (longer phrases first).
+SYNONYMS = [
+    (r"\bknock (.+?) over\b", r"push \1 hard"), (r"\boff the table\b", "away hard"),
+    (r"\b(shove|nudge|slide|kick|poke|bump|tap|flick|hit|bash|send|budge|scoot|swipe)\b", "push"),
+    (r"\b(toss|launch|fling|yeet|chuck|hurl|lob|flip)\b", "throw"),
+    (r"\blet (.+?) fall\b", r"drop \1"), (r"\b(release|dropping|fall)\b", "drop"),
+    (r"\b(get rid of|take away|take out|vanish|disappear|erase|delete|hide|clear)\b", "remove"),
+    (r"\b(bring back|unhide|undelete|put back)\b", "restore"),
+    (r"\b(start over|reset everything|reset all|restart|put everything back|undo everything)\b", "reset"),
+    (r"\b(paint|colou?r|dye|tint|change the colou?r of|recolou?r)\b", "make"),
+    (r"\b(enlarge|grow|scale up|upsize)\b", "make bigger"), (r"\b(larger|huge|giant)\b", "bigger"),
+    (r"\b(shrink|scale down|downsize)\b", "make smaller"), (r"\b(tiny|mini)\b", "smaller"),
+    (r"\b(to the left|leftwards|leftward)\b", "left"), (r"\b(to the right|rightwards|rightward)\b", "right"),
+    (r"\b(further|farther|away from me|backwards from me)\b", "away"),
+    (r"\b(softly|lightly|a bit|a little|slowly|carefully)\b", "gently"),
+    (r"\b(strongly|forcefully|really hard|super hard|violently|quickly)\b", "hard"),
+    (r"\b(on to|onto|on top of|atop|above)\b", "on"),
+    (r"\b(lunar|moon-like)\b", "moon"), (r"\b(weightless|no gravity|space)\b", "zero gravity"),
+    (r"\b(everything|all objects|all of them|all items|every object)\b", "all"),
+]
+VOCAB = {"push", "drop", "throw", "stack", "make", "remove", "restore", "reset", "measure", "gravity",
+         "left", "right", "away", "toward", "forward", "back", "gently", "hard", "bigger", "smaller",
+         "slippery", "bouncy", "heavier", "lighter", "moon", "mars", "jupiter", *COLORS}
+
+
+def _fuzzy_tokens(t, extra):
+    """Fix typos: tokens >= 4 letters close to a known word are replaced by it."""
+    import difflib
+    vocab = sorted(VOCAB | extra)
+    out = []
+    for w in t.split():
+        if len(w) >= 4 and w not in vocab:
+            m = difflib.get_close_matches(w, vocab, n=1, cutoff=0.8)
+            w = m[0] if m else w
+        out.append(w)
+    return " ".join(out)
+
+
+def normalize(text, names):
+    t = " " + text.lower().strip().rstrip("?.!") + " "
+    name_words = {w for ns in names.values() for n in ns for w in n.split() if len(w) >= 4}
+    t = " " + _fuzzy_tokens(t, name_words) + " "
+    for pat, rep in SYNONYMS:
+        t = re.sub(pat, rep, t)
+    return t
+
+
 def _num(s):
     m = re.search(r"(-?\d+(?:\.\d+)?)\s*(cm|mm|m|kg|g)?\b", s)
     if not m:
@@ -44,8 +91,15 @@ def _objects(text, names):
 def _clause(c, names, last):
     """One clause -> list of calls. `last` = last mentioned object id (for 'it')."""
     objs = _objects(c, names)
-    if not objs and re.search(r"\b(it|that|this one)\b", c) and last is not None:
+    if not objs and re.search(r"\b(it|that|this|this one|that one|them)\b", c) and last is not None:
         objs = [last]
+    if not objs and re.search(r"\ball\b", c) and not re.search(r"\breset\b", c):
+        # "drop everything": the same clause for every object.
+        out = []
+        for k in names:
+            r = _clause(c.replace(" all ", f" {names[k][0]} "), names, None)
+            out += r or []
+        return out or None
     o = str(objs[0]) if objs else None
 
     if re.search(r"\breset\b|start over|put (everything|all) back", c):
@@ -118,11 +172,15 @@ def _clause(c, names, last):
 
 def parse(text, names, default=None):
     """default: object id used for "it" when no object was mentioned before (the GUI selection)."""
-    t = " " + text.lower().strip().rstrip("?.!") + " "
-    simulate = bool(re.match(r"\s*(what if|what happens if|will|would|predict)\b", t))
-    t = re.sub(r"^\s*(what if|what happens if|predict|please|can you|could you)\s+", " ", t)
-    t = re.sub(r"\b(i|we)\s+", "", t)
-    clauses = [c.strip() for c in re.split(r",|;|\bthen\b|\band then\b|\balso\b", t) if c.strip()]
+    simulate = bool(re.match(r"\s*(what if|what happens if|what would happen if|will|would|predict|does|do)\b",
+                             text.lower()))
+    t = normalize(text, names)
+    t = re.sub(r"^\s*(what if|what happens if|what would happen if|predict|please|can you|could you|"
+               r"would you|i want to|i want you to|let's|lets)\s+", " ", t)
+    t = re.sub(r"\b(i|we|you)\s+", "", t)
+    verbs = r"push|drop|throw|stack|put|place|make|remove|restore|reset|measure|set"
+    clauses = [c.strip() for c in re.split(rf",|;|\bthen\b|\band then\b|\balso\b|\band\b(?= (?:{verbs})\b)", t)
+               if c and c.strip()]
     calls, unknown, last = [], [], default
     for c in clauses:
         r = _clause(" " + c + " ", names, last)
@@ -133,6 +191,9 @@ def parse(text, names, default=None):
         for x in r:
             if "obj" in x["args"]:
                 last = int(x["args"]["obj"]) if str(x["args"]["obj"]).isdigit() else last
+    if unknown:
+        unknown = [u + "  (try: push / drop / throw / put X on Y / make X red|bigger|slippery / "
+                   "remove / reset / what if ...)" for u in unknown]
     if simulate and calls:
         acts = [c for c in calls if c["name"] in ("push", "drop", "throw", "stack")]
         calls = [{"name": "simulate", "args": {"actions": acts}}] if acts else calls
