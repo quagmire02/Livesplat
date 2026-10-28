@@ -23,8 +23,9 @@ from viewer.app import Scene
 from viewer.holefill import footprint
 
 PX = 1024
-PROMPT = ("Top-down photo of a table. Replace every magenta area with the table surface so it continues the "
-          "surrounding wood grain, colour and lighting seamlessly. Do not change anything else.")
+PROMPT = ("Top-down photo of a wooden table. Replace every magenta area with clean wooden table surface that "
+          "continues the surrounding wood grain and colour seamlessly. No reflections, no white or grey patches, "
+          "no objects. Do not change anything outside the magenta areas.")
 
 
 def top_camera(r):
@@ -87,12 +88,17 @@ def main(run_dir):
     Image.fromarray(edited).save(run / "gen" / "table_top_filled.png")
     # Sanity: outside the footprints the edit should match the input (else it moved/restyled the image).
     keep = np.all(painted != [255, 0, 255], axis=-1)
+    tt = top[keep] / 255.0                                         # table colour: saturated (wood) pixels only
+    wood = np.median(tt[(tt.max(1) - tt.min(1)) > 0.12], 0)
     err = float(np.abs(edited[keep].astype(float) - top[keep]).mean())
     for o in sc.objects:
         if o["fill"] is None:
             continue
         uv = np.clip(to_px(o["fill"]["means"][:, :2] + o["base"][:2], c2w, K).astype(int), 0, PX - 1)
-        np.save(run / "gen" / f"fill_rgb_{o['id']}.npy", (edited[uv[:, 1], uv[:, 0]] / 255.0).astype(np.float32))
+        rgb = edited[uv[:, 1], uv[:, 0]] / 255.0
+        grey = (rgb.max(1) - rgb.min(1)) < 0.08                   # reflections copied from around the hole
+        rgb[grey] = wood
+        np.save(run / "gen" / f"fill_rgb_{o['id']}.npy", rgb.astype(np.float32))
     json.dump({"mean_abs_diff_outside": err, "spent_total_usd": budget.spent()},
               open(run / "gen" / "holefill_ai.json", "w"), indent=1)
     print(f"Muse Image fill done. Outside-footprint difference {err:.1f}/255. spent ${budget.spent():.4f}")

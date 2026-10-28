@@ -313,7 +313,8 @@ def main():
     undo_stack = []
     rm_path = Path(a.run_dir) / "bg_removed.npy"
     prev_removed = np.load(rm_path) if rm_path.exists() else np.zeros(0, np.int64)   # earlier sessions
-    on_table = (np.abs(sc.bg["means"][:, 2]) < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.03)
+    # The whole table column: a glossy top is made of faint splats and reflections below the surface.
+    on_table = (sc.bg["means"][:, 2] < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.05)
     add_btn = server.gui.add_button("add missed object (then click it)")
 
     @add_btn.on_click
@@ -356,9 +357,9 @@ def main():
     clean = server.gui.add_folder("clean up background", expand_by_default=False)
     with clean:
         server.gui.add_markdown("**Shift + drag** a box to erase background splats.")
-        protect = server.gui.add_checkbox("protect table top", True)
+        protect = server.gui.add_checkbox("protect table", True)
         radius = server.gui.add_slider("keep within (x table)", 1.0, 4.0, 0.1, 2.5)
-        min_op = server.gui.add_slider("min opacity", 0.0, 0.5, 0.01, 0.1)
+        min_op = server.gui.add_slider("min opacity", 0.0, 0.5, 0.01, 0.0)
         auto = server.gui.add_button("auto clean")
         undo_btn = server.gui.add_button("undo erase")
         clean_info = server.gui.add_markdown("")
