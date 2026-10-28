@@ -27,6 +27,8 @@ Submission: demo video + public repo. Deadline: **Nov 4, 9:00 PM ET** (Nov 5, 6:
 
 **Out of scope:** full rooms, drone footage, glass/mirror objects, cloth/fluids, live reconstruction, Muse Image inpainting.
 
+**Product focus (user decision):** The core product is for normal users: scan any tabletop, identify and tag the objects, move them freely (viewer + agent). Robot arms, sim export and grasp checks are an optional **Simulation mode** inside the product, not the product itself. Every new feature must keep the core flow simple.
+
 **Novelty:** none claimed. LiveSplat integrates known methods. Do not write "first" or "novel" in the README or the demo.
 
 ---

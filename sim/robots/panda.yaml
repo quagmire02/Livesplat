@@ -1,0 +1,22 @@
+# Franka Emika Panda (MuJoCo Menagerie, Apache-2.0). 7-DoF arm, parallel gripper.
+name: panda
+model: ~/livesplat_data/models/mujoco_menagerie/franka_emika_panda/panda.xml
+root_body: link0
+prefix: "panda/"
+arm_joints: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+arm_actuators: [actuator1, actuator2, actuator3, actuator4, actuator5, actuator6, actuator7]
+home: [0, 0, 0, -1.571, 0, 1.571, -0.785]
+tcp: {body: hand, offset: [0, 0, 0.1034]}   # fingertip centre
+approach_axis: [0, 0, 1]                    # tcp-body axis that points at the object
+close_axis: [0, 1, 0]                       # tcp-body axis the fingers close along
+ik: full                                    # full = position + full orientation (>= 6 DoF)
+gripper:
+  type: parallel
+  actuator: actuator8
+  open: 255
+  closed: 0
+  max_opening_m: 0.08
+  palm_clearance_m: 0.038                   # palm ends this far behind the TCP
+base_gap_m: 0.12                            # base distance from the table edge
+side_min_height_m: 0.045                    # side grasp: lowest pad height (the hand is wide)
+approach_tolerance_deg: 5                   # 7-DoF: the approach direction is exact

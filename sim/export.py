@@ -81,7 +81,20 @@ def urdf(name, mesh_rel, vis_rel, rgba, mass, com, I, mu):
 """
 
 
-def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collision="primitives"):
+def scale_scene(sc, k):
+    """Rescale a loaded Scene in place (table frame): scene units -> metres (k = metres per unit)."""
+    sc.radius *= k
+    sc.polygon = sc.polygon * k
+    sc.floor_z *= k
+    for o in sc.objects:
+        o["hull"], o["base"], o["volume"] = o["hull"] * k, o["base"] * k, o["volume"] * k ** 3
+        for part in (o["splat"], o.get("refl"), o.get("fill")):
+            if part is not None:
+                part["means"], part["scales"] = part["means"] * k, part["scales"] * k
+
+
+def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collision="primitives", scale=1.0,
+           scale_source="none (scene units)"):
     run = Path(run_dir)
     out = Path(out) if out else run / "sim"
     if out.exists():
@@ -90,6 +103,8 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collis
         (out / d).mkdir(parents=True)
 
     sc = Scene(run, src)
+    if scale != 1.0:
+        scale_scene(sc, scale)
     names = json.loads((run / "names.json").read_text()) if (run / "names.json").exists() else {}
     props = json.loads((run / "props.json").read_text()) if (run / "props.json").exists() else {}
     r = sc.radius
@@ -104,6 +119,9 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collis
     labels = np.load(next(p for p in (run / src / "labels.npy", run / "labels.npy", run / "labels_geo.npy")
                           if p.exists()))
     raw = splat.transform(splat.load_raw(run / src / "splat.ply"), sc.T)
+    if scale != 1.0:
+        raw["means"] = raw["means"] * scale
+        raw["scales"] = raw["scales"] + np.log(scale)
     m = raw["means"]
     near = np.ones(len(m), bool) if bg_crop <= 0 else \
         (np.linalg.norm(m[:, :2], axis=1) < bg_crop * r) & (m[:, 2] > -2.5 * r) & (m[:, 2] < 2.0 * r)
@@ -185,6 +203,7 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collis
         if i % cam_every:
             continue
         c2w = sc.T @ np.array(f["c2w"])
+        c2w[:3, 3] *= scale
         nm_ = f"cam_{f['name']}"
         cam_xml.append(camera_xml(nm_, c2w, np.array(f["K"]), H))
         cam_meta.append({"name": nm_, "frame": f["name"], "c2w_opencv": c2w.round(6).tolist(),
@@ -210,7 +229,8 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collis
     (out / "scene.xml").write_text(xml)
     meta = {
         "format": "livesplat-sim/1", "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "frame": FRAME_NOTE, "units": "scene units (~m, uncalibrated)",
+        "frame": FRAME_NOTE, "units": "metres" if scale != 1.0 else "scene units (~m, uncalibrated)",
+        "scale": {"metres_per_scene_unit": scale, "source": scale_source},
         "conventions": {"quaternion": "wxyz", "camera": "OpenCV c2w (x right, y down, z forward); "
                         "MJCF cameras converted to MuJoCo convention"},
         "table": {"polygon_xy": poly.round(5).tolist(), "top_z": 0.0, "thickness": table_h,
@@ -283,11 +303,13 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--cam-every", type=int, default=8)
     ap.add_argument("--bg-crop", type=float, default=0.0, help="keep background within this x table radius; 0 = full room")
+    ap.add_argument("--scale", type=float, default=1.0, help="metres per scene unit (calibration)")
+    ap.add_argument("--scale-source", default="none (scene units)", help="how the scale was found")
     ap.add_argument("--collision", choices=["primitives", "mesh"], default="primitives",
                     help="stack of fitted cylinders/boxes (grasps hold) or one convex hull mesh")
     ap.add_argument("--test", action="store_true")
     a = ap.parse_args()
-    out = export(a.run_dir, a.src, a.out, a.cam_every, a.bg_crop, a.collision)
+    out = export(a.run_dir, a.src, a.out, a.cam_every, a.bg_crop, a.collision, a.scale, a.scale_source)
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
     print(f"sim package -> {out} ({size:.0f} MB)")
     if a.test:

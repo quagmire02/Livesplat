@@ -1,0 +1,22 @@
+# TRS SO-ARM100 (MuJoCo Menagerie, Apache-2.0; LeRobot community arm). 5-DoF arm + rotating jaw.
+name: so100
+model: ~/livesplat_data/models/mujoco_menagerie/trs_so_arm100/so_arm100.xml
+root_body: Base
+prefix: "so100/"
+arm_joints: [Rotation, Pitch, Elbow, Wrist_Pitch, Wrist_Roll]
+arm_actuators: [Rotation, Pitch, Elbow, Wrist_Pitch, Wrist_Roll]
+home: [0, -1.57, 1.57, 1.57, -1.57]
+tcp: {body: Fixed_Jaw, offset: [-0.0144, -0.0808, 0]}   # between the jaw pads (measured from pad geoms)
+approach_axis: [-0.102, -0.995, 0]
+close_axis: [-0.999, 0.033, 0]
+ik: axis                                    # 5 DoF: match position + approach axis; closing axis is soft
+gripper:
+  type: jaw
+  actuator: Jaw
+  open: 1.0                                 # pad gap 7.9 cm (the jaw swings on an arc)
+  closed: -0.174
+  max_opening_m: 0.06
+  palm_clearance_m: 0.03
+base_gap_m: -0.08                          # clamped on the table top, 8 cm inside the edge (as SO-100s are used)
+side_min_height_m: 0.012                    # small jaw: can grasp low objects from the side
+approach_tolerance_deg: 30                  # 5-DoF: wrist-pitch limits force a tilted jaw near the base

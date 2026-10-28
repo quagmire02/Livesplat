@@ -14,8 +14,7 @@ import numpy as np
 import viser
 
 from scene_io import splat
-from sim.grasp import try_grasp
-from sim.robot import P
+from sim.grasp import load, run_grasp
 
 
 def add_splat(server, name, a):
@@ -23,7 +22,7 @@ def add_splat(server, name, a):
                                             rgbs=a["rgb"], opacities=a["opacity"][:, None])
 
 
-def robot_meshes(m):
+def robot_meshes(m, P):
     """Visual meshes of the Panda, grouped per body, vertices in the body frame."""
     out = {}
     for g in range(m.ngeom):
@@ -48,9 +47,8 @@ def main():
     ap.add_argument("--port", type=int, default=8080)
     a = ap.parse_args()
     sim = Path(a.sim_dir)
-    meta = json.loads((sim / "metadata.json").read_text())
-    rep = json.loads((sim / "checks" / "robot_report.json").read_text())
-    m = mujoco.MjModel.from_xml_path(str(sim / "robot_scene.xml"))
+    meta, rep, arm = load(sim)
+    m, spec = arm.m, arm.spec
     d = mujoco.MjData(m)
     mujoco.mj_forward(m, d)
     r = meta["table"]["radius"]
@@ -69,7 +67,7 @@ def main():
             fill_nodes[b].visible = False
         rest[b] = np.array(o["pose"]["pos"])
     link_nodes = {}
-    for bid, parts in robot_meshes(m).items():
+    for bid, parts in robot_meshes(m, spec.prefix).items():
         frame = server.scene.add_frame(f"/robot/{m.body(bid).name}", show_axes=False)
         for j, (v, f, rgb) in enumerate(parts):
             server.scene.add_mesh_simple(f"/robot/{m.body(bid).name}/g{j}", vertices=v, faces=f,
@@ -91,8 +89,7 @@ def main():
     home = np.zeros(m.nq)
     mujoco.mj_resetData(m, d)
     home[:] = d.qpos
-    qadr = [m.joint(f"{P}joint{i}").qposadr[0] for i in range(1, 8)]
-    home[qadr] = [0, 0, 0, -1.571, 0, 1.571, -0.785]
+    home[arm.qadr] = spec.home
     show(home)
 
     @server.on_client_connect
@@ -102,7 +99,7 @@ def main():
         client.camera.look_at = (0.3 * bx, 0.3 * by, 0.15)
 
     rows = {row["object"]: row for row in rep["objects"]}
-    server.gui.add_markdown(f"**Real-to-sim** · Franka Panda at "
+    server.gui.add_markdown(f"**Simulation mode** · {spec.name} at "
                             f"({rep['base']['pos'][0]:.2f}, {rep['base']['pos'][1]:.2f}) · scale uncalibrated")
     pick = server.gui.add_dropdown("object", list(rows))
     go = server.gui.add_button("grasp + lift")
@@ -112,7 +109,7 @@ def main():
     def status(name):
         row = rows[name]
         info.content = (f"reach **{'yes' if row['reachable_top_down'] else 'no'}** · width "
-                        f"{row['grasp_width_m'] * 100:.1f} cm (gripper 8 cm) · "
+                        f"{row['grasp_width_m'] * 100:.1f} cm (gripper {spec.max_opening * 100:.0f} cm) · "
                         f"{'fits' if row['fits_gripper'] else '**too wide**'}")
     status(pick.value)
     pick.on_update(lambda _: status(pick.value))

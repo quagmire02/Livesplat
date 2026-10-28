@@ -62,6 +62,10 @@ Updated: Oct 28 (day 1, evening).
 - Fixes: full-room background (14 -> 25 dB); primitive collision stacks (convex-mesh grasps slipped); aim at slice centre; 2.5 cm grasp depth (palm hit the top at 3.5-5 cm).
 - Next: side grasp (bottle); calibrated capture (A4) for units_per_metre; demo video.
 
+## BYO robots (done: B1, B2)
+- robot.yaml spec; Panda and SO-100 (5-DoF, jaw, table-clamped). Metric export (--scale). Synthetic known-answer scene. 32 tests pass.
+- Product focus recorded: core = scan, tag, move; Simulation mode is optional.
+
 ## Blocked / needs user
 - Better captures with an A4 sheet (for metric accuracy).
 

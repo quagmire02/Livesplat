@@ -91,6 +91,8 @@ Research tools (SplatSim, RoboGSim, phi-RIE) show the value. They need manual se
 - Each task ends with a test and a commit.
 
 ## 10. Bring your own robot (BYO) — plan
+**Scope rule:** This is Simulation mode. The core product (scan, tag, move objects) stays the main flow for normal users.
+
 A lab does not test "a Panda". A lab tests **its own setup**: its arm, its gripper, its mounting, its cameras, its code.
 The package must accept these inputs and give results in the lab's own terms.
 
