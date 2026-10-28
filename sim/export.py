@@ -125,7 +125,10 @@ def export(run_dir, src="thrift_sfm", out=None, cam_every=8, bg_crop=0.0, collis
     m = raw["means"]
     near = np.ones(len(m), bool) if bg_crop <= 0 else \
         (np.linalg.norm(m[:, :2], axis=1) < bg_crop * r) & (m[:, 2] > -2.5 * r) & (m[:, 2] < 2.0 * r)
-    splat.save_raw(out / "splats" / "background.ply", splat.subset(raw, (labels == 0) & near))
+    bgm = (labels == 0) & near
+    if (run / "bg_removed.npy").exists():                      # user erasures from the viewer
+        bgm[np.load(run / "bg_removed.npy")] = False
+    splat.save_raw(out / "splats" / "background.ply", splat.subset(raw, bgm))
 
     objs_meta, bodies, assets = [], [], []
     for o in sc.objects:

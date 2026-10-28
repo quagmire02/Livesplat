@@ -16,6 +16,7 @@ from scipy.spatial import ConvexHull
 
 from physics.world import World, hull_vertices, stands_alone
 from scene_io import splat
+from segment.cluster import in_polygon
 from viewer.holefill import fill_splat
 
 DEFAULT_DENSITY = 300.0          # kg/m^3: light household items; Spark properties replace this
@@ -62,6 +63,10 @@ class Scene:
         bg_idx = np.flatnonzero((labels == 0) & near)
         if len(bg_idx) > max_bg:                         # keep the most opaque background splats
             bg_idx = bg_idx[np.argsort(-raw["opacity"][bg_idx])[:max_bg]]
+        rm = run / "bg_removed.npy"                         # user erasures (viewer clean-up tools)
+        if rm.exists():
+            bg_idx = bg_idx[~np.isin(bg_idx, np.load(rm))]
+        self.bg_idx = bg_idx
         self.bg = splat.activate(splat.subset(raw, bg_idx))
         self.floor_z = self._floor(m, raw["opacity"], labels, radial)
 
@@ -138,7 +143,7 @@ def main():
     server = viser.ViserServer(port=a.port)
     server.scene.set_up_direction("+z")
     server.gui.configure_theme(control_layout="floating", control_width="medium", show_logo=False)
-    bg_node = add_splat(server, "/bg", sc.bg)
+    bg_holder = {"node": add_splat(server, "/bg", sc.bg)}
     nodes, refl_nodes, fill_nodes = {}, {}, {}
     cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r])}
     ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": False, "sim": False}
@@ -282,7 +287,71 @@ def main():
         else:
             run_command(f"make object {k} {color.value}")
 
-    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn] + ([planner] if planner else [])
+    # ---- background clean-up (image-editor style) ------------------------------------
+    keep = np.ones(len(sc.bg["means"]), bool)
+    undo_stack = []
+    rm_path = Path(a.run_dir) / "bg_removed.npy"
+    prev_removed = np.load(rm_path) if rm_path.exists() else np.zeros(0, np.int64)   # earlier sessions
+    on_table = (np.abs(sc.bg["means"][:, 2]) < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.03)
+    clean = server.gui.add_folder("clean up background", expand_by_default=False)
+    with clean:
+        server.gui.add_markdown("**Shift + drag** a box to erase background splats.")
+        protect = server.gui.add_checkbox("protect table top", True)
+        radius = server.gui.add_slider("keep within (x table)", 1.0, 4.0, 0.1, 2.5)
+        min_op = server.gui.add_slider("min opacity", 0.0, 0.5, 0.01, 0.1)
+        auto = server.gui.add_button("auto clean")
+        undo_btn = server.gui.add_button("undo erase")
+        clean_info = server.gui.add_markdown("")
+
+    def apply_bg(sel):
+        if not sel.any():
+            return
+        undo_stack.append(sel.copy())
+        keep[sel] = False
+        refresh_bg()
+
+    def refresh_bg():
+        bg_holder["node"] = add_splat(server, "/bg", {k: v[keep] for k, v in sc.bg.items()})
+        np.save(rm_path, np.concatenate([prev_removed, sc.bg_idx[~keep]]).astype(np.int64))
+        clean_info.content = f"{(~keep).sum():,} splats erased this session · {keep.sum():,} kept"
+
+    @server.scene.on_rect_select(modifier="shift")
+    def _(ev):
+        if ui["sim"]:
+            return
+        from scipy.spatial.transform import Rotation
+        cam = ev.client.camera
+        q = cam.wxyz
+        R = Rotation.from_quat([q[1], q[2], q[3], q[0]]).as_matrix()      # camera-to-world, OpenCV axes
+        pc = (sc.bg["means"] - np.array(cam.position)) @ R
+        z = pc[:, 2]
+        tv = np.tan(cam.fov / 2)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u = 0.5 + pc[:, 0] / (z * 2 * tv * cam.aspect)
+            v = 0.5 + pc[:, 1] / (z * 2 * tv)
+        (x0, y0), (x1, y1) = ev.screen_min, ev.screen_max
+        sel = keep & (z > 0) & (u >= x0) & (u <= x1) & (v >= y0) & (v <= y1)
+        if protect.value:
+            sel &= ~on_table
+        apply_bg(sel)
+
+    @auto.on_click
+    def _(_):
+        m = sc.bg["means"]
+        far = np.linalg.norm(m[:, :2], axis=1) > radius.value * r
+        faint = sc.bg["opacity"] < min_op.value
+        sel = keep & (far | faint)
+        if protect.value:
+            sel &= ~on_table
+        apply_bg(sel)
+
+    @undo_btn.on_click
+    def _(_):
+        if undo_stack:
+            keep[undo_stack.pop()] = True
+            refresh_bg()
+
+    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn, clean] + ([planner] if planner else [])
 
     @mode_btn.on_click
     def _(_):
@@ -293,7 +362,7 @@ def main():
         ui["sim"] = not ui["sim"]
         ui["sel"], ui["held"] = None, False
         sim_mode["obj"].set_visible(ui["sim"])
-        for n in [bg_node, *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
+        for n in [bg_holder["node"], *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
             n.visible = not ui["sim"]
         for g in tabletop_gui:
             g.visible = not ui["sim"]
