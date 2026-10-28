@@ -108,6 +108,62 @@ def grasp_width(hull_pts, quat_wxyz, depth):
     return best
 
 
+SIDE_MIN_H = 0.045                       # side grasp: lowest pad height above the table (hand clearance)
+SIDE_MAX_IN = 0.035                      # fingertip centre at most this far past the near surface (palm)
+
+
+def side_frame(approach):
+    """Hand rotation for a horizontal approach: z along `approach`, fingers close horizontally."""
+    z = np.array([approach[0], approach[1], 0.0])
+    z /= np.linalg.norm(z)
+    y = np.array([-z[1], z[0], 0.0])
+    return np.stack([np.cross(y, z), y, z], 1)
+
+
+def robot_collisions(m, d, q, ignore=()):
+    """Names of non-robot bodies the arm touches at joint config q (objects stay at their poses)."""
+    qadr, *_ = arm_index(m)
+    d.qpos[qadr] = q
+    mujoco.mj_forward(m, d)
+    hits = set()
+    for c in d.contact[:d.ncon]:
+        n1, n2 = m.body(m.geom_bodyid[c.geom1]).name, m.body(m.geom_bodyid[c.geom2]).name
+        r1, r2 = n1.startswith(P), n2.startswith(P)
+        if r1 != r2:
+            other = n2 if r1 else n1
+            if other not in ignore:
+                hits.add(other or "table/floor")
+    return sorted(hits)
+
+
+def side_plan(hull_pts, pos, quat_wxyz, approach, upm):
+    """Best side grasp: height, width across the fingers, TCP point. None if nothing fits."""
+    import trimesh
+    from scipy.spatial.transform import Rotation
+    w, x, y, z = quat_wxyz
+    mesh = trimesh.convex.convex_hull(hull_pts @ Rotation.from_quat([x, y, z, w]).as_matrix().T)
+    H = mesh.bounds[1, 2]
+    a = np.array(approach[:2]) / np.linalg.norm(approach[:2])
+    perp = np.array([-a[1], a[0]])
+    best = None
+    for h in np.arange(max(SIDE_MIN_H * upm, 0.15 * H), H - 0.02 * upm, 0.01 * upm):
+        sec = mesh.section(plane_origin=[0, 0, h], plane_normal=[0, 0, 1])
+        if sec is None or len(sec.vertices) < 3:
+            continue
+        xy = np.asarray(sec.vertices)[:, :2]
+        pa, pp = xy @ a, xy @ perp
+        width = np.ptp(pp)
+        if width / upm > GRIP_MAX - 0.005:
+            continue
+        along = min((pa.min() + pa.max()) / 2, pa.min() + SIDE_MAX_IN * upm)
+        ctr = a * along + perp * (pp.min() + pp.max()) / 2
+        score = abs(h - 0.4 * H)
+        if best is None or score < best["score"]:
+            best = {"score": score, "height": float(h), "width": float(width),
+                    "tcp": [pos[0] + ctr[0], pos[1] + ctr[1], pos[2] + h], "approach": a.tolist()}
+    return best
+
+
 def reach_report(m, meta, hulls, upm):
     d = mujoco.MjData(m)
     mujoco.mj_resetData(m, d)
@@ -122,7 +178,41 @@ def reach_report(m, meta, hulls, upm):
         d.qpos[qadr] = home
         err, ang = ik(m, d, target, down_frame(yaw))
         ok_reach = err < 0.01 * upm and ang < 5
-        rows.append({"object": o["name"], "body": o["body"], "reachable_top_down": bool(ok_reach),
+        q_top = d.qpos[qadr].copy()
+        top_block = robot_collisions(m, d, q_top) if ok_reach else []
+        # Top-down at the grasp point (fingers open around the object: the target itself may touch).
+        base_xy = d.body(f"{P}link0").xpos[:2]
+        base_dir = pos[:2] - base_xy
+        side_row, blocked_by = {"feasible": False}, set()
+        for dang in np.radians([0, -20, 20, -40, 40, -60, 60]):
+            c_, s_ = np.cos(dang), np.sin(dang)
+            appr = np.array([c_ * base_dir[0] - s_ * base_dir[1], s_ * base_dir[0] + c_ * base_dir[1]])
+            side = side_plan(hulls[o["body"]], pos, quat, appr, upm)
+            if not side:
+                continue
+            Rd = side_frame(side["approach"])
+            a3 = np.array([*side["approach"], 0.0])
+            d.qpos[qadr] = home
+            e_p, a_p = ik(m, d, np.array(side["tcp"]) - 0.12 * upm * a3, Rd)
+            q_pre = d.qpos[qadr].copy()
+            e_s, a_s = ik(m, d, np.array(side["tcp"]), Rd)
+            q_at = d.qpos[qadr].copy()
+            ok_ik = max(e_p, e_s) < 0.01 * upm and max(a_p, a_s) < 5
+            hits = sorted(set(robot_collisions(m, d, q_pre)) | set(robot_collisions(m, d, q_at, ignore=(o["body"],))))
+            cand = {"feasible": bool(ok_ik and not hits), "height_m": round(side["height"] / upm, 4),
+                    "width_m": round(side["width"] / upm, 4), "tcp": np.round(side["tcp"], 5).tolist(),
+                    "approach_xy": np.round(side["approach"], 4).tolist(), "approach_offset_deg": round(float(np.degrees(dang))),
+                    "ik_pos_error_m": round(e_s / upm, 4), "ik_angle_error_deg": round(a_s, 1), "blocked_by": hits}
+            blocked_by |= set(hits)
+            if cand["feasible"] and (not side_row["feasible"] or cand["width_m"] < side_row["width_m"]):
+                side_row = cand
+            elif not side_row["feasible"] and "height_m" not in side_row:
+                side_row = cand
+        if not side_row["feasible"] and blocked_by:
+            side_row["blocked_by"] = sorted(blocked_by)
+        d.qpos[qadr] = q_top
+        rows.append({"object": o["name"], "body": o["body"], "reachable_top_down": bool(ok_reach and not top_block),
+                     "top_blocked_by": top_block, "side": side_row,
                      "ik_pos_error_m": round(err / upm, 4), "ik_angle_error_deg": round(ang, 1),
                      "grasp_width_m": round(width / upm, 4), "grasp_yaw_deg": round(np.degrees(yaw), 1),
                      "fits_gripper": bool(width / upm <= GRIP_MAX - 0.005),
@@ -184,6 +274,10 @@ def main():
               f"(err {r['ik_pos_error_m'] * 100:.1f} cm, {r['ik_angle_error_deg']:.0f} deg)  "
               f"width {r['grasp_width_m'] * 100:.1f} cm -> {'fits' if r['fits_gripper'] else 'TOO WIDE'} "
               f"at yaw {r['grasp_yaw_deg']:.0f}")
+        s = r["side"]
+        print(f"  {'':<20} side: " + (f"{'YES' if s['feasible'] else 'no'} at {s['height_m'] * 100:.0f} cm high, "
+                                      f"width {s['width_m'] * 100:.1f} cm" + (f", blocked by {s['blocked_by']}" if s.get('blocked_by') else '')
+                                      if "height_m" in s else "nothing fits the gripper"))
 
 
 if __name__ == "__main__":

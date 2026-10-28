@@ -6,9 +6,9 @@ Files:
 - render.py — SplatRenderer: splats posed by MuJoCo bodies (gsplat). Self-contained; copied into packages. Colour tint, fills.
 - check_render.py — Capture cameras at rest vs real keyframes (PSNR), push sequence.
 - variants.py — Randomized layouts/mass/friction/tint; load + settle check; contact sheet.
-- robot.py — `python -m sim.robot <sim_dir>`. Copies the Panda (Menagerie, Apache-2.0) into the package, attaches it (MjSpec), searches 24 base positions around the table, IK top-down reach, grasp width on the true hull cross-section 2.5 cm below the top. Writes robot_scene.xml, checks/robot_report.json.
-- grasp.py — `python -m sim.grasp <sim_dir>`. Dynamic grasp: above -> down -> close -> lift. Success = rises >= 5 cm and stays in the hand. Aims at the slice centre, not the base origin.
+- robot.py — `python -m sim.robot <sim_dir>`. Copies the Panda (Menagerie, Apache-2.0), attaches it (MjSpec), searches 24 base positions, IK top-down reach + side grasp (approach angles base dir ±60°, height with width ≤ 7.5 cm near 40% of height, palm clearance). Collision check of the arm vs table/floor/other objects at pre-grasp and grasp poses; reports blockers. Writes robot_scene.xml, checks/robot_report.json.
+- grasp.py — `python -m sim.grasp <sim_dir> [--mode auto|top|side|both]`. Dynamic grasps (top: above -> down -> close -> lift; side: back off 12 cm -> in -> close -> lift). Success = rises >= 5 cm and stays in the hand.
 - view.py — `python -m sim.view <sim_dir>`. Browser view: splats + Panda meshes; "grasp + lift" runs live.
 - run.sh — Runs a sim module with CUDA_HOME/PATH for the gsplat JIT.
-Results (table1): self-test drift 0.00 cm, camera error 7e-7; render 25.4 dB; 8/8 variants settle; reach 3/3; grasp: aerosol can SUCCESS (lifted 16 cm), lotion bottle FAIL (top-down takes only the pump head; needs a side grasp), toilet roll too wide (10.9 cm > 8 cm).
+Results (table1): self-test drift 0.00 cm, camera error 7e-7; render 25.4 dB; 8/8 variants settle; can top-down SUCCESS (16 cm), can side BLOCKED (bottle, roll, table); bottle top FAIL (pump head) and side FAIL (only the neck fits, 0.55 kg slips; body 14.5 units wide in the uncalibrated model); roll too wide.
 Limits: scale uncalibrated (units_per_metre = 1.0); Panda gripper force from Menagerie gains; top-down grasps only.
