@@ -16,9 +16,32 @@ from scipy.spatial import ConvexHull
 
 from physics.world import World, hull_vertices
 from scene_io import splat
+from viewer.holefill import fill_splat
 
 DEFAULT_DENSITY = 300.0          # kg/m^3: light household items; Spark properties replace this
 DEFAULT_FRICTION = 0.5
+
+
+def solid_points(a, min_opacity=0.5, k=12, keep=2.0):
+    """Points for the collision hull: opaque, above the table, statistical outliers removed
+    (floaters attached by region growing would otherwise inflate the hull)."""
+    from scipy.spatial import cKDTree
+    P = a["means"][(a["opacity"] > min_opacity) & (a["means"][:, 2] >= 0)]
+    if len(P) < 50:
+        P = a["means"][a["means"][:, 2] >= 0]
+    d = cKDTree(P).query(P, k=k + 1)[0][:, 1:].mean(1)
+    P = P[d < np.median(d) * keep]
+    lo, hi = np.percentile(P[:, :2], 1, 0), np.percentile(P[:, :2], 99, 0)
+    P = P[((P[:, :2] >= lo) & (P[:, :2] <= hi)).all(1)]
+    # Flat footprint: the underside is never seen, so project the lowest band onto the table.
+    # Use ALL low Gaussians (any opacity): thin or shiny objects have few opaque ones, and a too
+    # narrow footprint makes an object that stood still in the video tip over.
+    A = a["means"][(a["means"][:, 2] >= 0) & (a["opacity"] > 0.05)]
+    band = A[A[:, 2] < 0.1 * np.ptp(P[:, 2])]
+    if len(band) >= 20:
+        lo, hi = np.percentile(band[:, :2], 5, 0), np.percentile(band[:, :2], 95, 0)
+        band = band[((band[:, :2] >= lo) & (band[:, :2] <= hi)).all(1)]
+    return np.concatenate([P, np.c_[band[:, :2], np.zeros(len(band))]])
 
 
 class Scene:
@@ -47,7 +70,7 @@ class Scene:
             a = splat.activate(splat.subset(raw, labels == k))
             base = np.array([*np.median(a["means"][:, :2], 0), 0.0])
             a["means"] = (a["means"] - base).astype(np.float32)
-            solid = a["means"][(a["opacity"] > 0.3) & (a["means"][:, 2] >= 0)]
+            solid = solid_points(a)
             hull = hull_vertices(solid)
             vol = ConvexHull(solid).volume
             refl = None
@@ -56,7 +79,8 @@ class Scene:
                 refl["means"] = (refl["means"] - base).astype(np.float32)
             self.objects.append({"id": k, "base": base, "splat": a, "refl": refl, "hull": hull,
                                  "volume": vol, "mass": max(0.01, DEFAULT_DENSITY * vol),
-                                 "friction": DEFAULT_FRICTION, "bounce": 0.1})
+                                 "friction": DEFAULT_FRICTION, "bounce": 0.1,
+                                 "fill": fill_splat(self.bg, base, hull, r)})
 
     def _floor(self, m, opacity, labels, radial):
         """Floor height = densest level well below the table top."""
@@ -74,6 +98,11 @@ def add_splat(server, name, a):
 
 
 def main():
+    import os
+
+    from agent.controller import Controller
+    from agent.planner import handle
+
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
     ap.add_argument("--src", default="thrift_sfm")
@@ -82,107 +111,113 @@ def main():
 
     sc = Scene(a.run_dir, a.src)
     world = World(sc.objects, sc.polygon, floor_z=sc.floor_z)
-    lock = threading.Lock()
+    lock = threading.RLock()
     r = sc.radius
-
     server = viser.ViserServer(port=a.port)
     server.scene.set_up_direction("+z")
     add_splat(server, "/bg", sc.bg)
-    nodes, refl_nodes = {}, {}
-    for o in sc.objects:
-        nodes[o["id"]] = add_splat(server, f"/obj{o['id']}", o["splat"])
-        nodes[o["id"]].position = tuple(o["base"])
+    nodes, refl_nodes, fill_nodes = {}, {}, {}
+    cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r])}
+
+    def build_nodes(k):
+        o = next(o for o in sc.objects if o["id"] == k)
+        nodes[k] = add_splat(server, f"/obj{k}", o["splat"])
         if o["refl"] is not None:
-            refl_nodes[o["id"]] = add_splat(server, f"/refl{o['id']}", o["refl"])
-            refl_nodes[o["id"]].position = tuple(o["base"])
+            refl_nodes[k] = add_splat(server, f"/refl{k}", o["refl"])
+            refl_nodes[k].position = tuple(o["base"])
+        if o["fill"] is not None:
+            fill_nodes[k] = add_splat(server, f"/fill{k}", o["fill"])
+            fill_nodes[k].position = tuple(o["base"])
+            fill_nodes[k].visible = False
+
+    for o in sc.objects:
+        build_nodes(o["id"])
+    ctrl = Controller(sc, world, a.run_dir, on_appearance=build_nodes, camera=lambda: (cam["pos"], cam["look"]))
     print(f"{len(sc.objects)} objects, table radius {r:.3f}, floor z {sc.floor_z:.3f}")
     for o in sc.objects:
-        print(f"  obj {o['id']}: volume {o['volume'] * 1e6:.0f} cm3, mass {o['mass']:.3f} kg, "
-              f"hull {len(o['hull'])} verts")
+        print(f"  {o['id']} {ctrl.names[o['id']][:3]}: volume {o['volume'] * 1e6:.0f} cm3, mass {o['mass']:.3f} kg, "
+              f"fill {'yes' if o['fill'] is not None else 'no'}")
 
     @server.on_client_connect
     def _(client):
-        client.camera.position = (1.3 * r, -1.3 * r, 1.1 * r)
-        client.camera.look_at = (0.0, 0.0, 0.1 * r)
+        client.camera.position = tuple(cam["pos"])
+        client.camera.look_at = tuple(cam["look"])
 
-    # ---- GUI -------------------------------------------------------------
+        @client.camera.on_update
+        def _(c):
+            cam["pos"], cam["look"] = np.array(c.position), np.array(c.look_at)
+
+    # ---- command box -------------------------------------------------------
+    allow_meta = os.environ.get("LIVESPLAT_ALLOW_META") == "1"
+    with server.gui.add_folder("command"):
+        backend = server.gui.add_dropdown("planner", ["local", "meta"] if allow_meta else ["local"])
+        box = server.gui.add_text("say", "push the tallest object left")
+        go = server.gui.add_button("run")
+        out = server.gui.add_markdown("")
+    history = []
+
+    def run_command(text):
+        with lock:
+            results, note = handle(text, ctrl, backend.value, default=int(pick.value))
+        lines = [f"**> {text}**"] + [f"- `{c['name']}` → {res}" for c, res in results]
+        if note:
+            lines.append(f"- _{note}_")
+        history[:0] = ["\n".join(lines)]
+        out.content = "\n\n".join(history[:6])
+        print("\n".join(lines), flush=True)
+
+    @go.on_click
+    def _(_):
+        run_command(box.value)
+
+    # ---- direct controls -----------------------------------------------------
     ids = [str(o["id"]) for o in sc.objects]
     pick = server.gui.add_dropdown("object", ids)
-    with server.gui.add_folder("actions"):
-        b_push = {d: server.gui.add_button(f"push {d}") for d in ("+x", "-x", "+y", "-y")}
-        b_drop = server.gui.add_button("drop from 0.3 m")
-        b_throw = server.gui.add_button("throw up")
-        b_reset = server.gui.add_button("reset scene")
-    with server.gui.add_folder("properties"):
-        s_mass = server.gui.add_slider("mass kg", 0.01, 5.0, 0.01, sc.objects[0]["mass"])
-        s_fric = server.gui.add_slider("friction", 0.0, 1.5, 0.01, DEFAULT_FRICTION)
-        s_bnc = server.gui.add_slider("bounce", 0.0, 0.95, 0.05, 0.1)
+    with server.gui.add_folder("actions", expand_by_default=False):
+        for d in ("left", "right", "away", "toward"):
+            server.gui.add_button(f"push {d}").on_click(
+                lambda _, d=d: run_command(f"push object {pick.value} {d}"))
+        server.gui.add_button("drop").on_click(lambda _: run_command(f"drop object {pick.value}"))
+        server.gui.add_button("throw").on_click(lambda _: run_command(f"throw object {pick.value}"))
+        server.gui.add_button("reset").on_click(lambda _: run_command("reset"))
+    with server.gui.add_folder("world", expand_by_default=False):
         s_grav = server.gui.add_slider("gravity m/s2", 0.0, 25.0, 0.1, 9.81)
-    with server.gui.add_folder("speed"):
-        s_push = server.gui.add_slider("push m/s", 0.1, 3.0, 0.1, 0.6)
         paused = server.gui.add_checkbox("pause", False)
-
-    def k():
-        return int(pick.value)
-
-    def obj(kk):
-        return next(o for o in sc.objects if o["id"] == kk)
-
-    @pick.on_update
-    def _(_):
-        o = obj(k())
-        s_mass.value, s_fric.value, s_bnc.value = o["mass"], o["friction"], o["bounce"]
-
-    for dname, btn in b_push.items():
-        vec = {"+x": (1, 0), "-x": (-1, 0), "+y": (0, 1), "-y": (0, -1)}[dname]
-        btn.on_click(lambda _, v=vec: (lock.acquire(), world.push(k(), v, s_push.value), lock.release()))
-
-    @b_drop.on_click
-    def _(_):
-        with lock:
-            world.drop(k(), 0.3)
-
-    @b_throw.on_click
-    def _(_):
-        with lock:
-            world.throw(k(), (0.3, 0.0, 2.5), spin=(3.0, 1.0, 0.0))
-
-    @b_reset.on_click
-    def _(_):
-        with lock:
-            world.reset()
-
-    def prop(name, slider):
-        @slider.on_update
-        def _(_):
-            if getattr(obj(k()), "get")(name) == slider.value:
-                return
-            with lock:
-                getattr(world, f"set_{name}")(k(), slider.value)
-    prop("mass", s_mass)
-    prop("friction", s_fric)
-    prop("bounce", s_bnc)
 
     @s_grav.on_update
     def _(_):
         with lock:
             world.set_gravity(s_grav.value)
 
-    # ---- loop ------------------------------------------------------------
+    # ---- loop ----------------------------------------------------------------
     frame = 1 / 60
     while True:
         t0 = time.time()
         if not paused.value:
             with lock:
                 world.step(frame)
-                poses = {o["id"]: world.pose(o["id"]) for o in sc.objects}
-                rest = {o["id"]: world.at_rest_pose(o["id"]) for o in sc.objects}
+                state = {}
+                for o in sc.objects:
+                    k = o["id"]
+                    present = world.present(k)
+                    pose = world.pose(k) if present else None
+                    # Upright on the table: the reflection (part of a glossy object's look) follows it.
+                    upright = present and abs(pose[0][2] - world.rest[k][2]) < 0.01 and abs(pose[1][0]) > 0.996
+                    state[k] = (present, pose, world.at_rest_pose(k), upright)
             with server.atomic():
-                for kk, (p, q) in poses.items():
-                    nodes[kk].position = tuple(p)
-                    nodes[kk].wxyz = tuple(q)
-                    if kk in refl_nodes:
-                        refl_nodes[kk].visible = rest[kk]
+                for k, (present, pose, rest, upright) in state.items():
+                    nodes[k].visible = present
+                    if present:
+                        nodes[k].position, nodes[k].wxyz = tuple(pose[0]), tuple(pose[1])
+                    if k in refl_nodes:
+                        refl_nodes[k].visible = upright
+                        if upright:
+                            w_, z_ = pose[1][0], pose[1][3]           # yaw-only part of the rotation
+                            n_ = max(np.hypot(w_, z_), 1e-9)
+                            refl_nodes[k].position = (pose[0][0], pose[0][1], 0.0)
+                            refl_nodes[k].wxyz = (w_ / n_, 0.0, 0.0, z_ / n_)
+                    if k in fill_nodes:
+                        fill_nodes[k].visible = not rest
         time.sleep(max(0.0, frame - (time.time() - t0)))
 
 

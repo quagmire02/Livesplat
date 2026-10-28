@@ -30,6 +30,8 @@ def build_xml(objects, polygon, table_thick, floor_z, gravity=9.81):
     assets = [f'<mesh name="table" vertex="{_vec(prism)}"/>']
     bodies = []
     for o in objects:
+        if o.get("removed"):
+            continue
         assets.append(f'<mesh name="m{o["id"]}" vertex="{_vec(o["hull"])}"/>')
         # solref: (timeconst, dampratio). Lower dampratio = bouncier.
         damp = max(0.05, 1.0 - o.get("bounce", 0.1))
@@ -55,15 +57,27 @@ class World:
         self.gravity = 9.81
         self._build()
 
-    def _build(self, keep_state=None):
+    def _build(self, keep=True):
+        """(Re)compile the model. Per-object state is saved and restored by object id, because
+        adding or removing a body changes the qpos layout."""
+        saved = self._save() if keep and hasattr(self, "d") else {}
         self.xml = build_xml(self.objects, self.polygon, self.table_thick, self.floor_z, self.gravity)
         self.m = mujoco.MjModel.from_xml_string(self.xml)
         self.d = mujoco.MjData(self.m)
-        self.qpos0 = self.d.qpos.copy()
-        if keep_state is not None:
-            self.d.qpos[:], self.d.qvel[:] = keep_state
+        self.bid = {o["id"]: self.m.body(f"o{o['id']}").id for o in self.objects if not o.get("removed")}
+        self.rest = {k: self.d.qpos[self._jnt(k)[0]:self._jnt(k)[0] + 7].copy() for k in self.bid}
+        for k, (qp, qv) in saved.items():
+            if k in self.bid:
+                q, dof = self._jnt(k)
+                self.d.qpos[q:q + 7], self.d.qvel[dof:dof + 6] = qp, qv
         mujoco.mj_forward(self.m, self.d)
-        self.bid = {o["id"]: self.m.body(f"o{o['id']}").id for o in self.objects}
+
+    def _save(self):
+        out = {}
+        for k in self.bid:
+            q, dof = self._jnt(k)
+            out[k] = (self.d.qpos[q:q + 7].copy(), self.d.qvel[dof:dof + 6].copy())
+        return out
 
     def _jnt(self, k):
         j = self.m.body_jntadr[self.bid[k]]
@@ -75,6 +89,12 @@ class World:
             mujoco.mj_step(self.m, self.d)
         self.d.xfrc_applied[:] = 0
 
+    def forward(self):
+        mujoco.mj_forward(self.m, self.d)
+
+    def present(self, k):
+        return k in self.bid
+
     def pose(self, k):
         b = self.bid[k]
         return self.d.xpos[b].copy(), self.d.xquat[b].copy()           # wxyz
@@ -84,13 +104,36 @@ class World:
         return float(np.linalg.norm(self.d.qvel[dof:dof + 3]))
 
     def at_rest_pose(self, k, tol=0.01):
+        if k not in self.bid:
+            return False
         q, _ = self._jnt(k)
-        return float(np.linalg.norm(self.d.qpos[q:q + 3] - self.qpos0[q:q + 3])) < tol
+        return float(np.linalg.norm(self.d.qpos[q:q + 3] - self.rest[k][:3])) < tol
 
     def reset(self):
-        self.d.qpos[:] = self.qpos0
-        self.d.qvel[:] = 0
+        for k in self.bid:
+            q, dof = self._jnt(k)
+            self.d.qpos[q:q + 7] = self.rest[k]
+            self.d.qvel[dof:dof + 6] = 0
         mujoco.mj_forward(self.m, self.d)
+
+    def place(self, k, pos, wxyz):
+        q, dof = self._jnt(k)
+        self.d.qpos[q:q + 3], self.d.qpos[q + 3:q + 7] = pos, wxyz
+        self.d.qvel[dof:dof + 6] = 0
+        mujoco.mj_forward(self.m, self.d)
+
+    def set_removed(self, k, removed):
+        for o in self.objects:
+            if o["id"] == k:
+                o["removed"] = removed
+        self._build()
+
+    def rescale(self, k, hull, mass):
+        """New collision hull + mass. Hulls scale about the base origin (z = 0), so the base stays on the table."""
+        for o in self.objects:
+            if o["id"] == k:
+                o["hull"], o["mass"] = hull, max(1e-3, mass)
+        self._build()
 
     # ---- actions (all units SI, table frame) -----------------------------
     def push(self, k, direction, speed=0.6):
@@ -103,7 +146,7 @@ class World:
 
     def drop(self, k, height):
         q, dof = self._jnt(k)
-        self.d.qpos[q + 2] = self.qpos0[q + 2] + height
+        self.d.qpos[q + 2] = self.rest[k][2] + height
         self.d.qvel[dof:dof + 6] = 0
         mujoco.mj_forward(self.m, self.d)
 
@@ -129,4 +172,4 @@ class World:
         for o in self.objects:
             if o["id"] == k:
                 o.update(kw)
-        self._build(keep_state=(self.d.qpos.copy(), self.d.qvel.copy()))
+        self._build()

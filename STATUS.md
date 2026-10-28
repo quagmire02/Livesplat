@@ -43,10 +43,15 @@ Updated: Oct 28 (day 1, evening).
 - C: recon/build.py presets with VRAM/RAM fallback (dry-run verified).
 - D: recon/refine_objects.py works (lazy native crops, frozen bg). No gain on a 1568 px video (expected); auto-skipped there.
 
+## Day 2 later chunks (done)
+- Agent: 16 tools, local rule parser, Spark planner (not called yet), controller; 15 tests pass.
+- Hole fill under moved objects; reflections follow upright objects (shiny can went pale when hidden).
+- Hull: outlier filter + flat footprint from all low Gaussians (thin can tipped at rest before).
+- Scale is ~1.5-2x too large (table 97 cm across); needs A4 capture.
+
 ## Next
-- Agent tools + text command box (rule parser local, Spark later).
-- Hole fill under moved objects; viewer start camera.
-- Needs user: 4K capture with A4 sheet (measurement + refinement proof).
+- Spark: names/properties per object (vision, ~$0.03) + meta planner check (needs user OK).
+- Optional: SAM split for touching objects; 4K + A4 capture.
 
 ## Blocked / needs user
 - Better captures with an A4 sheet (for metric accuracy).

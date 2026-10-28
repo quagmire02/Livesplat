@@ -95,7 +95,9 @@ The agent outputs JSON tool calls. `agent/schema.py` validates each call. An inv
 - **Measure:** `measure(obj)`, `distance(a, b)`, `compare(a, b)`
 - **Change physics:** `set_mass(obj, kg)`, `set_friction(obj, mu)`, `set_bounce(obj, e)`, `set_gravity(g)`
 - **Act:** `push(obj, dir, force)`, `drop(obj, height)`, `stack(a, b)`, `spawn(shape, size)`, `reset()`
-- **Predict:** `simulate(actions, seconds)` runs headless and returns the outcome. The viewer then replays it.
+- **Predict:** `simulate(actions, seconds)` runs headless and returns the outcome.
+- **Appearance/scene:** `set_color(obj, color)`, `scale(obj, factor)`, `remove(obj)`, `restore(obj)`, `list_objects()`.
+- Requests outside the tools are reported as unsupported; the agent never runs generated code.
 
 The simulation is deterministic: fixed timestep, no random input.
 
