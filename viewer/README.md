@@ -1,3 +1,3 @@
 # viewer/ — Viser app
-Planned: app.py (per-object splat nodes, click/drag, command box).
-Status: empty. See spikes/viser_nodes.py.
+- app.py — Scene (table frame, bg crop, per-object splats with base origin), manual pose sliders. `python -m viewer.app <run_dir>`.
+Status: app.py works on table1 (manual move sliders). Physics not yet wired.

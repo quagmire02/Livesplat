@@ -6,6 +6,7 @@ Saves raw responses in the cache so parsers can be written without new calls.
 Run (WSL):  MODEL_API_KEY=... python -m spikes.api_smoke <image.jpg> "<sam prompt>"
 """
 import json
+import os
 import sys
 
 from PIL import Image
@@ -16,7 +17,7 @@ from backends.meta import budget, client
 def main(img_path, prompt):
     print(f"budget ${budget.budget():.2f}, spent so far ${budget.spent():.4f}")
     im = Image.open(img_path)
-    im.thumbnail((518, 518))
+    im.thumbnail((int(os.environ.get("SMOKE_MAX", 518)),) * 2)
     uri = client.image_data_uri(im, quality=85)
 
     # 1. SAM 3.1 on one small image.
@@ -28,7 +29,7 @@ def main(img_path, prompt):
     v = client.spark_chat([{"role": "user", "content": [
         {"type": "text", "text": f"Look at the {prompt}. Reply with JSON only: "
                                  '{"material": str, "hollow": bool, "mass_kg": float, "friction": float}'},
-        {"type": "image_url", "image_url": {"url": uri}}]}], max_tokens=120)
+        {"type": "image_url", "image_url": {"url": uri}}]}], max_tokens=int(os.environ.get("SMOKE_TOK", 120)))
     print("\n[spark vision]", json.dumps(v, indent=1)[:1500])
 
     # 3. Spark tool call: text only.
@@ -38,7 +39,7 @@ def main(img_path, prompt):
             "obj": {"type": "string"}, "dir": {"type": "string", "enum": ["left", "right", "forward", "back"]},
             "force": {"type": "number", "description": "newtons"}}, "required": ["obj", "dir", "force"]}}}]
     t = client.spark_chat([{"role": "user", "content": "Give the mug a gentle push to the left."}],
-                          tools=tools, max_tokens=120)
+                          tools=tools, max_tokens=int(os.environ.get("SMOKE_TOK", 120)))
     print("\n[spark tools]", json.dumps(t, indent=1)[:1500])
     print(f"\nspent total ${budget.spent():.4f}")
 
