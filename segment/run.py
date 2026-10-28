@@ -11,7 +11,7 @@ import numpy as np
 
 from scene_io import splat
 from scene_io.thrift import load_cameras
-from segment.cluster import clean_edges, cluster_objects, grow_labels
+from segment.cluster import attach_base_and_reflection, clean_edges, cluster_objects, grow_labels
 from segment.plane import find_table, to_table
 
 
@@ -47,10 +47,11 @@ def main():
     labels = cluster_objects(pts_t, act["opacity"], tb["polygon"], tb["radius"])
     labels = clean_edges(pts_t, act["scales"], act["opacity"], labels)
     labels = grow_labels(pts_t, labels, tb["radius"], tb["polygon"])
+    labels = attach_base_and_reflection(pts_t, labels, tb["radius"])
     ids = [k for k in range(1, labels.max() + 1) if (labels == k).any()]
     remap = np.zeros(labels.max() + 1, np.int32)
     remap[ids] = np.arange(1, len(ids) + 1)
-    labels = remap[labels]
+    labels = np.sign(labels) * remap[np.abs(labels)]                # keep -k reflection labels
 
     json.dump({"T_world_to_table": tb["T"].tolist(), "polygon": tb["polygon"].tolist(),
                "radius": tb["radius"], "scene_scale": tb["scene_scale"],

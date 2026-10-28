@@ -68,6 +68,29 @@ def grow_labels(pts_t, labels, radius, polygon, margin=0.025, min_h=0.004, iters
     return out
 
 
+def attach_base_and_reflection(pts_t, labels, radius, base_band=0.02, refl_depth=0.6, grow=1.15,
+                               low_frac=20):
+    """Inside each object's footprint (hull of its lowest points, scaled by `grow`):
+    - Gaussians within +-base_band (x radius) of the plane join the object (its base; the table
+      under it was never seen anyway).
+    - Gaussians below that, down to refl_depth, get label -k: the object's mirror image in a glossy
+      table. The viewer shows them only while object k is at rest."""
+    from scipy.spatial import ConvexHull
+    out = labels.copy()
+    z = pts_t[:, 2] / radius
+    for k in range(1, labels.max() + 1):
+        Q = pts_t[labels == k]
+        if len(Q) < 10:
+            continue
+        low = Q[Q[:, 2] <= np.percentile(Q[:, 2], low_frac)]
+        hull = low[ConvexHull(low[:, :2]).vertices, :2]
+        c = hull.mean(0)
+        inside = in_polygon(pts_t[:, :2], c + (hull - c) * grow) & (out == 0)
+        out[inside & (np.abs(z) <= base_band)] = k
+        out[inside & (z < -base_band) & (z > -refl_depth)] = -k
+    return out
+
+
 def clean_edges(pts_t, scales, opacity, labels, max_scale_frac=0.5):
     """Drop Gaussians that are large relative to their object, or isolated from it."""
     out = labels.copy()
