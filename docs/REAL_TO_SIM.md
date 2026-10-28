@@ -89,3 +89,41 @@ Research tools (SplatSim, RoboGSim, phi-RIE) show the value. They need manual se
 - No paid API calls in this work (CLAUDE.md rule 1).
 - Do not copy ThriftSplat code. Import it if necessary.
 - Each task ends with a test and a commit.
+
+## 10. Bring your own robot (BYO) — plan
+A lab does not test "a Panda". A lab tests **its own setup**: its arm, its gripper, its mounting, its cameras, its code.
+The package must accept these inputs and give results in the lab's own terms.
+
+### 10.1 What a lab brings
+| Input | Form | Use |
+|---|---|---|
+| Arm + gripper | URDF or MJCF (+ meshes) | Kinematics, collisions, dynamics |
+| Robot config | `robot.yaml`: model file, base pose, TCP offset, gripper type (parallel: max opening, finger joints; suction: cup radius), home pose, joint names | Makes the checks robot-independent |
+| Mounting | Base pose relative to the table (measured, or "auto" search) | Reach and collision results for the real layout |
+| Cameras | Intrinsics + extrinsics (wrist and/or static), or "same as capture" | Photoreal images from the lab's camera views |
+| Motions | Joint trajectories (CSV/NPZ from robot logs or a planner), or grasp poses (list of 6D poses) | Replay and check in the twin |
+| Policy | Python callable `obs -> action` | Closed-loop test in the twin |
+
+### 10.2 What LiveSplat gives back
+1. **Reach and grasp report** for their arm (same checks as the Panda: reach, width, side/top, blockers).
+2. **Mount advisor**: reach map over the table for candidate base poses ("put the base here to reach all objects").
+3. **Trajectory replay**: run their joint path in the twin; report collisions (which link, which object, when), joint-limit hits, objects moved.
+4. **Grasp-pose check**: for each pose from their grasp planner: reachable? collision-free? lift succeeds in physics?
+5. **Gym-style environment** (`LiveSplatEnv`): `reset()`, `step(action)`, observation = joint state + photoreal camera images from their camera poses. Their policy runs in the twin unchanged.
+6. **Batch over variants**: success rate over N randomized scenes (layout, mass, friction, colour) with a confidence interval.
+7. **Standard export**: MJCF + URDF scene for MuJoCo/PyBullet; scene description for Isaac/Gazebo users.
+
+### 10.3 Order of work (proposed)
+| Step | Work | Test |
+|---|---|---|
+| B1 | `robot.yaml` + generalize robot.py/grasp.py (no Panda constants) | Panda through yaml gives the same results |
+| B2 | Second arm to prove it: LeRobot SO-ARM100 (Menagerie, Apache-2.0; popular in labs and the LeRobot community) | Reach/grasp report for SO-100 |
+| B3 | Trajectory replay + collision timeline | Replay a recorded/planned path; collisions listed |
+| B4 | `LiveSplatEnv` (gym API) with splat camera images | Random policy runs; images render |
+| B5 | Mount advisor heatmap | Image of reach coverage over the table |
+| B6 | Batch success rate over variants | Table: success % per object |
+
+### 10.4 Limits
+- URDF import: MuJoCo reads URDF directly; meshes must be STL/OBJ. Xacro must be expanded first.
+- Gripper models differ. B1 supports parallel grippers first; suction is a simple contact check later.
+- Scale must be calibrated (reference object) before results apply to a real setup.
