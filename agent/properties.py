@@ -17,7 +17,10 @@ from scene_io.thrift import load_cameras, project
 PROMPT = ("This crop shows one object on a table (centre of the image). Reply with JSON only: "
           '{"name": short common name, "aliases": [2-4 other words people might use], '
           '"material": str, "hollow": bool, "mass_kg": float (the real object), '
-          '"friction": float 0-1.5 against wood, "bounce": float 0-0.9}')
+          '"friction": float 0-1.5 against wood, "bounce": float 0-0.9, '
+          '"sam_prompt": 1-3 word concrete noun phrase to segment this object (e.g. "spray can"), '
+          '"real_size_cm": [width, depth, height] typical real size of this product in cm, '
+          '"size_confidence": "high" if you recognise the exact product type, else "low"}')
 
 
 def best_crop(points_w, cams, pad=0.25):
@@ -56,6 +59,7 @@ def main():
     cams = load_cameras(run / a.src)
     labels = np.load(run / "labels_geo.npy")
     raw = splat.load_raw(run / a.src / "splat.ply")
+    T = np.array(json.loads((run / "align.json").read_text())["T_world_to_table"])
     names, props = {}, {}
     for k in range(1, labels.max() + 1):
         m = (labels == k) & (1 / (1 + np.exp(-raw["opacity"])) > 0.5)
@@ -74,10 +78,23 @@ def main():
             print(f"obj {k}: could not parse: {text[:200]!r}")
             continue
         names[str(k)] = [j["name"].lower()] + [s.lower() for s in j.get("aliases", [])]
-        props[str(k)] = {x: j[x] for x in ("material", "hollow", "mass_kg", "friction", "bounce") if x in j}
+        props[str(k)] = {x: j[x] for x in ("material", "hollow", "mass_kg", "friction", "bounce", "sam_prompt",
+                                           "real_size_cm", "size_confidence") if x in j}
+        P = raw["means"][m] @ T[:3, :3].T + T[:3, 3]           # object points in the table frame
+        props[str(k)]["measured_height_units"] = float(np.percentile(P[:, 2], 98))
         print(f"obj {k}: {names[str(k)]} {props[str(k)]}")
     (run / "names.json").write_text(json.dumps(names, indent=1))
     (run / "props.json").write_text(json.dumps(props, indent=1))
+    # Automatic scale: real heights (Spark world knowledge) / measured heights; cross-checked between objects.
+    ratios = {k: p["real_size_cm"][2] / 100 / p["measured_height_units"] for k, p in props.items()
+              if p.get("real_size_cm") and p.get("measured_height_units", 0) > 0}
+    hi = {k: v for k, v in ratios.items() if props[k].get("size_confidence") == "high"} or ratios
+    if hi:
+        v = np.array(list(hi.values()))
+        scale = {"metres_per_unit": float(np.median(v)), "spread": float(np.ptp(v) / np.median(v)),
+                 "per_object": ratios, "used": sorted(hi), "source": "Spark typical product sizes"}
+        (run / "scale.json").write_text(json.dumps(scale, indent=1))
+        print(f"scale: {scale['metres_per_unit']:.3f} m/unit (spread {scale['spread'] * 100:.0f}% over {len(hi)} objects)")
     print(f"spent total ${budget.spent():.4f}")
 
 

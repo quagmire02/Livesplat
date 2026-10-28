@@ -45,8 +45,13 @@ def sam31_image(prompt: str, image_uri: str) -> dict:
     est = budget.PRICE["sam-3.1/image"]
     budget.check(est, "sam-3.1 image")
     try:
-        r = requests.post(f"{BASE}/responses", headers=_headers(stream=True), json=req,
-                          stream=True, timeout=TIMEOUT)
+        try:
+            r = requests.post(f"{BASE}/responses", headers=_headers(stream=True), json=req,
+                              stream=True, timeout=TIMEOUT)
+        except requests.exceptions.Timeout:                  # one retry; the ledger still counts both
+            budget.record(est, "sam-3.1 image (timeout)", {"prompt": prompt})
+            r = requests.post(f"{BASE}/responses", headers=_headers(stream=True), json=req,
+                              stream=True, timeout=TIMEOUT)
         raw = r.text
         out = {"status": r.status_code, "raw": raw}
     finally:

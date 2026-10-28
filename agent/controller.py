@@ -183,7 +183,9 @@ class Controller:
         rgb0 = o["rgb0"]
         lum = rgb0 @ np.array([0.299, 0.587, 0.114])
         shade = lum / max(np.median(lum), 1e-3)                  # keep highlights and shadows
-        o["splat"]["rgb"] = np.clip(np.array(COLORS[color])[None] * shade[:, None], 0, 1).astype(np.float32)
+        new = np.clip(np.array(COLORS[color])[None] * shade[:, None], 0, 1).astype(np.float32)
+        body = o["splat"]["means"][:, 2] > 0.02 * self.sc.radius * o["scale"]   # skip the attached table band
+        o["splat"]["rgb"] = np.where(body[:, None], new, rgb0).astype(np.float32)
         self.on_appearance(k)
         return f"{self.label(k)} is now {color}"
 
