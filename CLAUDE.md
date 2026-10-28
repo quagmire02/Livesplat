@@ -18,6 +18,8 @@ Submission: demo video + public repo. Deadline: **Nov 4, 9:00 PM ET** (Nov 5, 6:
 7. **Update `STATUS.md`** at the end of each work block: what works, what is broken, and the next step.
 8. Keep diffs small. Do not reformat files you do not change. Do not add a dependency without a one-line reason in `STATUS.md`.
 9. Do not write new code on Nov 4. Nov 4 is for the demo video and README only.
+10. **No Claude attribution.** Do not add Co-Authored-By or "Generated with" lines to commits or PRs. The user is the only contributor.
+11. Remote: github.com/quagmire02/Livesplat (branches main, real-to-sim).
 
 ---
 
