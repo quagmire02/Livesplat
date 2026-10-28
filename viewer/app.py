@@ -118,6 +118,7 @@ def main():
     ap.add_argument("run_dir")
     ap.add_argument("--src", default="thrift_sfm")
     ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--sim", help="sim package for Simulation mode (default: <run>/sim_m or <run>/sim)")
     a = ap.parse_args()
 
     sc = Scene(a.run_dir, a.src)
@@ -127,10 +128,10 @@ def main():
     server = viser.ViserServer(port=a.port)
     server.scene.set_up_direction("+z")
     server.gui.configure_theme(control_layout="floating", control_width="medium", show_logo=False)
-    add_splat(server, "/bg", sc.bg)
+    bg_node = add_splat(server, "/bg", sc.bg)
     nodes, refl_nodes, fill_nodes = {}, {}, {}
     cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r])}
-    ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": False}
+    ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": False, "sim": False}
 
     def build_nodes(k):
         o = next(o for o in sc.objects if o["id"] == k)
@@ -168,7 +169,11 @@ def main():
     sel_md = server.gui.add_markdown("_nothing selected_")
     obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
     color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
-    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
+    sim_dir = a.sim or next((str(Path(a.run_dir) / n) for n in ("sim_m", "sim")
+                             if (Path(a.run_dir) / n / "robot_scene.xml").exists()), None)
+    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"]
+                                            + (["simulation"] if sim_dir else []))
+    sim_mode = {"obj": None}
     history = []
 
     def run_command(text):
@@ -266,6 +271,18 @@ def main():
     @scene_btn.on_click
     def _(_):
         v = scene_btn.value
+        if v == "simulation":                    # optional mode: robot + sim package, core scene hidden
+            if sim_mode["obj"] is None:
+                from sim.view import SimMode
+                log.content = "_loading simulation mode..._"
+                sim_mode["obj"] = SimMode(server, sim_dir)
+            ui["sim"] = not ui["sim"]
+            sim_mode["obj"].set_visible(ui["sim"])
+            for n in [bg_node, *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
+                n.visible = not ui["sim"]
+            gizmo.visible = False
+            log.content = "_simulation mode (press simulation again to go back)_" if ui["sim"] else "_tabletop mode_"
+            return
         if v == "reset":
             run_command("reset")
         elif v == "pause":
@@ -278,7 +295,7 @@ def main():
     frame = 1 / 60
     while True:
         t0 = time.time()
-        if not ui["paused"]:
+        if not ui["paused"] and not ui["sim"]:
             with lock:
                 k = ui["sel"]
                 if ui["held"] and k is not None and world.present(k) and ui["target"] is not None:
