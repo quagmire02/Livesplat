@@ -46,6 +46,18 @@ class Controller:
             if o["id"] == tallest:
                 auto.append("tallest")
             out[o["id"]] = [n.lower() for n in given.get(o["id"], [])] + auto
+        # Short names: the last word of a given name ("lotion bottle" -> "bottle") if no other object uses it.
+        heads = {}
+        for k, ns in out.items():
+            for n in ns[:4]:
+                w = n.split()[-1]
+                if len(w) > 2 and not w.isdigit():
+                    heads.setdefault(w, set()).add(k)
+        for w, ks in heads.items():
+            if len(ks) == 1:
+                k = next(iter(ks))
+                if w not in out[k]:
+                    out[k].append(w)
         return out
 
     def label(self, k):

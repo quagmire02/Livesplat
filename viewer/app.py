@@ -160,8 +160,11 @@ def main():
 
     # ---- panel (compact) -----------------------------------------------------
     allow_meta = os.environ.get("LIVESPLAT_ALLOW_META") == "1"
-    server.gui.add_markdown("**Click** an object to select it. **Drag** the arrows to move it; "
-                            "let go while moving to throw it.")
+    sim_dir = a.sim or next((str(Path(a.run_dir) / n) for n in ("sim_m", "sim")
+                             if (Path(a.run_dir) / n / "robot_scene.xml").exists()), None)
+    mode_btn = server.gui.add_button("switch to simulation mode", visible=bool(sim_dir))
+    intro = server.gui.add_markdown("**Click** an object to select it. **Drag** the arrows to move it; "
+                                    "let go while moving to throw it.")
     box = server.gui.add_text("command", "push the bottle left, then make it red")
     planner = server.gui.add_dropdown("planner", ["local", "meta"]) if allow_meta else None
     go = server.gui.add_button("run command")
@@ -169,12 +172,11 @@ def main():
     sel_md = server.gui.add_markdown("_nothing selected_")
     obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
     color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
-    sim_dir = a.sim or next((str(Path(a.run_dir) / n) for n in ("sim_m", "sim")
-                             if (Path(a.run_dir) / n / "robot_scene.xml").exists()), None)
-    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"]
-                                            + (["simulation"] if sim_dir else []))
+    scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
     sim_mode = {"obj": None}
     history = []
+
+    from sim.view import SimMode
 
     def run_command(text):
         with lock:
@@ -213,6 +215,8 @@ def main():
 
     @server.scene.on_click()
     def _(ev):
+        if ui["sim"]:                                     # simulation mode: tabletop objects are hidden
+            return
         with lock:
             k = pick(ev.ray_origin, ev.ray_direction, sc.objects, world)
         ui["sel"] = k
@@ -268,21 +272,27 @@ def main():
         else:
             run_command(f"make object {k} {color.value}")
 
+    tabletop_gui = [intro, box, go, log, sel_md, obj_btn, color, scene_btn] + ([planner] if planner else [])
+
+    @mode_btn.on_click
+    def _(_):
+        """Optional Simulation mode: robot + sim package; the tabletop scene and its controls are hidden."""
+        if sim_mode["obj"] is None:
+            mode_btn.label = "loading simulation mode..."
+            sim_mode["obj"] = SimMode(server, sim_dir)
+        ui["sim"] = not ui["sim"]
+        ui["sel"], ui["held"] = None, False
+        sim_mode["obj"].set_visible(ui["sim"])
+        for n in [bg_node, *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
+            n.visible = not ui["sim"]
+        for g in tabletop_gui:
+            g.visible = not ui["sim"]
+        gizmo.visible = False
+        mode_btn.label = "back to tabletop mode" if ui["sim"] else "switch to simulation mode"
+
     @scene_btn.on_click
     def _(_):
         v = scene_btn.value
-        if v == "simulation":                    # optional mode: robot + sim package, core scene hidden
-            if sim_mode["obj"] is None:
-                from sim.view import SimMode
-                log.content = "_loading simulation mode..._"
-                sim_mode["obj"] = SimMode(server, sim_dir)
-            ui["sim"] = not ui["sim"]
-            sim_mode["obj"].set_visible(ui["sim"])
-            for n in [bg_node, *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
-                n.visible = not ui["sim"]
-            gizmo.visible = False
-            log.content = "_simulation mode (press simulation again to go back)_" if ui["sim"] else "_tabletop mode_"
-            return
         if v == "reset":
             run_command("reset")
         elif v == "pause":
