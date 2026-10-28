@@ -9,7 +9,7 @@ Submission: demo video + public repo. Deadline: **Nov 4, 9:00 PM ET** (Nov 5, 6:
 
 ## 1. Hard rules (read first)
 
-1. **Paid API calls need user approval.** The default backend is `local`. Do not run `--backend meta` unless the user says so in chat.
+1. **Paid API calls need user approval, per round.** The default backend is `local`. No API calls while base features are being built; API rounds happen only after base features are done, to tune (min-max) them, and each round needs a new OK in chat.
 2. **Budget guard.** `backends/meta/budget.py` writes every paid call to `.cache/api/ledger.jsonl` with its estimated cost. It refuses a call if the total would go above `LIVESPLAT_BUDGET_USD` (default **1.00**). Do not bypass it.
 3. **Every API response goes to the disk cache** (`.cache/api/`, keyed by a hash of the request). Read the cache before any call.
 4. **Do not copy ThriftSplat code into this repo.** Call ThriftSplat as a separate program (stage 0) in its own venv. It is the reconstruction front end.

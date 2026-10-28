@@ -3,3 +3,5 @@
 - viser_nodes.py — spikes 2+3, node rotation + fuzz.
 - sam2_local.py — spike 4, SAM 2.1 small VRAM/time.
 Spike 6 (camera convention) = tests/test_cameras.py.
+- dump_cache.py — print cached API responses.
+- spark_planner.py — Spark planner check on 5 free-form commands (paid).

@@ -49,9 +49,14 @@ Updated: Oct 28 (day 1, evening).
 - Hull: outlier filter + flat footprint from all low Gaussians (thin can tipped at rest before).
 - Scale is ~1.5-2x too large (table 97 cm across); needs A4 capture.
 
-## Next
-- Spark: names/properties per object (vision, ~$0.03) + meta planner check (needs user OK).
-- Optional: SAM split for touching objects; 4K + A4 capture.
+## Day 2 evening (done)
+- Editor selection (click + gizmo, throw on release), full reset, compact panel, tolerant parser (28 tests).
+- Spark round 1 (approved): names + props for 3 objects ($0.011) - names right; toilet roll mass 0.02 kg is wrong (empty-tube guess). Planner 4/5 on free wording ($0.022); miss = looked up objects then stopped -> multi-round tool loop written, NOT yet tested (no API until base features done).
+- Total API spend $0.0511.
+
+## Product direction (open)
+- User rejected: shake test as product, pack/ship, size check, physics lab (need exact measures / manual anyway).
+- Proposed: real-to-sim export for robotics (MJCF + per-object splats + metadata, reach/grasp check). Waiting for user decision.
 
 ## Blocked / needs user
 - Better captures with an A4 sheet (for metric accuracy).

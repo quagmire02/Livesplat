@@ -82,6 +82,15 @@ class Scene:
                                  "friction": DEFAULT_FRICTION, "bounce": 0.1,
                                  "fill": fill_splat(self.bg, base, hull, r)})
 
+        pp = run / "props.json"                         # Spark estimates (agent/properties.py)
+        if pp.exists():
+            props = json.loads(pp.read_text())
+            for o in self.objects:
+                p = props.get(str(o["id"]), {})
+                o["mass"] = float(p.get("mass_kg", o["mass"]))
+                o["friction"] = float(p.get("friction", o["friction"]))
+                o["bounce"] = float(p.get("bounce", o["bounce"]))
+
     def _floor(self, m, opacity, labels, radial):
         """Floor height = densest level well below the table top."""
         r = self.radius

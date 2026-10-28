@@ -3,7 +3,8 @@ Files:
 - schema.py — TOOLS (OpenAI function format, sent as-is to Spark), COLORS, validate(call) with numeric limits; simulate may only contain push/drop/throw/stack.
 - controller.py — Controller(scene, world, run_dir, on_appearance, camera): resolves names (names.json first, then auto: colour, "object k", "tallest"), camera-relative directions, runs tools t_*. simulate saves/restores physics state.
 - parser.py — local rule planner: normalize() (synonyms, typo fix via difflib, "everything"), clause rules; splits on , ; then also, and+verb. "what if/would/will" -> simulate. "it" -> last object or GUI selection. Unknown clauses get a hint.
-- planner.py — handle(text, ctrl, backend, default): local -> parser; meta -> Spark tool calling (needs LIVESPLAT_ALLOW_META=1 in the viewer + user approval).
+- planner.py — handle(text, ctrl, backend, default): local -> parser; meta -> run_meta tool-use loop (max 3 rounds; continues after look-up-only rounds). Multi-round path untested with paid calls.
 Tools: list_objects, measure, push, drop, throw, stack, set_mass, set_friction, set_bounce, set_gravity, set_color, scale, remove, restore, reset (FULL: poses, colours, sizes, removed, properties, gravity), simulate.
 Names: <run>/names.json {id: [names]} — fixture for table1 in tests/fixtures; Spark vision will write it later.
 Status: 15 tests pass on table1. Unknown requests are reported, never guessed.
+- properties.py — Spark vision per object (largest clean keyframe crop) -> names.json + props.json (viewer uses mass/friction/bounce). Paid; run only in approved API rounds.
