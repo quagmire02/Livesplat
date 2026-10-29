@@ -10,6 +10,8 @@ from PIL import Image
 from backends.meta import client
 from scene_io.thrift import load_cameras, project
 
+CARD_TOKENS = 3000                      # reasoning model: room to think and still return the JSON
+
 PROMPT = '''Analyse the same tabletop object centred in these source-video crops from different views.
 Surrounding objects may appear: focus on the centre object. Return JSON only with:
 {"name": "common object name", "confidence": "low|medium|high", "visible_text": "only legible text or unknown",
@@ -164,7 +166,7 @@ class ObjectCards:
                     content = [{'type': 'text', 'text': PROMPT}]
                     content += [{'type': 'image_url', 'image_url': {'url': client.image_data_uri(im)}}
                                 for _, im in self.previews[k]]
-                response = client.spark_chat([{'role': 'user', 'content': content}], max_tokens=1200, cache_only=cached)
+                response = client.spark_chat([{'role': 'user', 'content': content}], max_tokens=CARD_TOKENS, cache_only=cached)
                 self.cards[k] = parse_card(response)
                 self.status.content = f'Object {k}: Muse analysis loaded. Suggestions are unconfirmed; scene properties are unchanged.'
                 self.render()

@@ -5,3 +5,4 @@
 Spike 6 (camera convention) = tests/test_cameras.py.
 - dump_cache.py — print cached API responses.
 - spark_planner.py — Spark planner check on 5 free-form commands (paid).
+- analyse_objects.py — approved round: SAM isolation + Muse PROMPT_SAM card per object (same requests as the viewer card) -> gen/card_k.json.
