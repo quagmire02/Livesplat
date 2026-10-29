@@ -10,3 +10,4 @@ The user's $150 hackathon credits are not permission to call models or to raise 
 Status: Total spend $0.0511.
 
 - [CHANGE_NOTES.md](CHANGE_NOTES.md) — Short implementation summary and remaining gaps (Oct 29).
+- baseten.py — Muse Spark Open (meta-models/muse-spark-open-1026) on Baseten credit; OpenAI-compatible; cache + budget guard; needs BASETEN_API_KEY and LIVESPLAT_ALLOW_BASETEN=1.

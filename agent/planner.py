@@ -22,7 +22,7 @@ def scene_summary(ctrl):
                      for o in ctrl.sc.objects)
 
 
-def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False):
+def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False, provider="meta"):
     """Tool-use loop: Spark calls tools, sees the results, and may continue (e.g. list, then stack).
     Returns (list of (call, result), final text). NOT yet tested with paid calls (multi-round)."""
     from backends.meta import client
@@ -33,7 +33,11 @@ def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False):
     done, note = [], ""
     for _ in range(max_rounds):
         try:
-            r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000, cache_only=cache_only)
+            if provider == "baseten":                         # Muse Spark Open, open weights, Baseten credit
+                from backends import baseten
+                r = baseten.chat(msgs, tools=TOOLS, max_tokens=3000, cache_only=cache_only)
+            else:
+                r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000, cache_only=cache_only)
         except client.PermissionRequired as e:
             return done, str(e)
         if r.get("_status") != 200:
@@ -49,6 +53,9 @@ def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False):
                 call = {"name": tc["function"]["name"], "args": json.loads(tc["function"]["arguments"] or "{}")}
             except ValueError:
                 call = {"name": tc["function"]["name"], "args": {"_bad_json": True}}
+            for key in ("obj", "base", "target"):               # models may send object ids as numbers
+                if isinstance(call["args"].get(key), (int, float)) and not isinstance(call["args"][key], bool):
+                    call["args"][key] = str(int(call["args"][key]))
             res = ctrl.run(call)
             done.append((call, res))
             msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": res})
@@ -60,6 +67,8 @@ def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False):
 
 def handle(text, ctrl, backend="local", default=None):
     """Returns (list of (call, result) pairs, note)."""
+    if backend == "baseten":
+        return run_meta(text, ctrl, default=default, provider="baseten")
     if backend in ("meta", "cached"):
         return run_meta(text, ctrl, default=default, cache_only=backend == "cached")
     else:

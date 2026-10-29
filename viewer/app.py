@@ -247,8 +247,11 @@ def main():
         mode_info = server.gui.add_markdown("**Arrange** · physics paused. Switch to Experiment to let objects move.")
         box = server.gui.add_text("command", examples["push"] + ", then make it red")
         try_btn = server.gui.add_button_group("try", list(examples))
-        planner = server.gui.add_dropdown("planner", ["local", "cached"] + (["meta"] if allow_meta else []),
-                                          hint="local = offline rules; cached = saved Muse responses only; meta = approved live round")
+        allow_baseten = os.environ.get("LIVESPLAT_ALLOW_BASETEN") == "1" and bool(os.environ.get("BASETEN_API_KEY"))
+        planner = server.gui.add_dropdown("planner", ["local", "cached"] + (["meta"] if allow_meta else [])
+                                          + (["baseten"] if allow_baseten else []),
+                                          hint="local = offline rules; cached = saved Muse responses only; meta = approved "
+                                               "live round; baseten = Muse Spark Open (open weights) on Baseten credit")
         go = server.gui.add_button("run command")
         log = server.gui.add_markdown("")
         sel_md = server.gui.add_markdown("_nothing selected_")

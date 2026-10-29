@@ -112,3 +112,5 @@ Updated: Oct 29.
 - Select -> Isolate with SAM 3.1 (cached, $0) -> Muse analyses masked crops + diagnosis overlays -> card with scan issues, capture guidance, suggested fix (preview/apply via Repair). Live Muse round for PROMPT_SAM not yet approved.
 
 - Muse PROMPT_SAM validated live on table1 (approved round, \.035 for 3 objects): names, visible text (Cetaphil, SHIELD), per-view scan issues, capture guidance, repair advice remove_attachments for all three. Total spend \.328.
+
+- Baseten (Muse Spark Open) validated: tool calls and vision work; planner option baseten (multi-step stack command works). Spark Open sends ids as numbers, coerced to text.
