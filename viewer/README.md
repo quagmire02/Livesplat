@@ -19,3 +19,4 @@ Clean-up: folder "clean up background" (tabletop mode): Shift + drag a box erase
 Notes: All browser clients share one panel. Do not use the disable_sliders or depth_test options of the gizmo (NaN lines).
 
 - [CHANGE_NOTES.md](CHANGE_NOTES.md) — Short implementation summary and remaining gaps (Oct 29).
+- apply_fixes.py — apply the SAM-suggested attachment fix to all (or --ids) objects -> visual_repairs.npz (cached SAM, \). The viewer loads saved repairs at startup.

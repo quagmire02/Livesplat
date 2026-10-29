@@ -351,6 +351,8 @@ def main():
     from viewer.repair import RepairPanel
     with repair_tab:
         repair = RepairPanel(server, sc, world, ui, lock, nodes, contact_nodes, add_splat, a.run_dir)
+        if repair.path.exists():                            # saved repairs (e.g. viewer.apply_fixes) load at startup
+            repair.disk("load repairs")
     from viewer.object_card import ObjectCards
     reference_sidebar = server.gui.add_html('')
     def confirm_reference_name(k, name):
