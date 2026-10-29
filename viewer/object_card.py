@@ -238,10 +238,15 @@ class ObjectCards:
                     colors=np.tile(np.array([255, 210, 30], np.uint8), (len(ids), 1)), point_size=.002)
             self.status.content = f'Preview: {len(ids):,} splats outside the SAM masks (yellow). Apply moves them to the table.'
         else:
-            if r.selection is None or r.selection[0] != key:
-                self.fix('preview fix')
-            r.edit('keep on table')
-            self.status.content = 'Fix applied: attachments stay on the table. Undo and save are in the Repair tab.'
+            from viewer.apply_fixes import TABLE_BAND
+            ids = iso['spill_ids'][iso['spill_ids'] < len(r.layers[key]['a']['means'])]
+            low = r.layers[key]['a']['means'][ids, 2] < TABLE_BAND * self.scene.radius
+            for sel, action_ in ((ids[~low], 'erase'), (ids[low], 'keep on table')):   # fuzz vs table bits
+                if len(sel):
+                    r.selection = key, sel
+                    r.edit(action_)
+            self.status.content = (f'Fix applied: {(~low).sum():,} fuzz splats erased, {low.sum():,} table splats kept on '
+                                   'the table. Undo and save are in the Repair tab.')
 
     def render(self):
         k = self.selected

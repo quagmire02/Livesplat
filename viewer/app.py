@@ -225,11 +225,15 @@ def main():
                                         "href": None},), "image": None},
         control_layout="floating", control_width="medium", dark_mode=True, show_logo=False,
         show_share_button=False, brand_color=(255, 140, 66))
+    # Four tabs by task: Play (do things), Object (the selected object), Scene (clean the room), Robots (optional).
     tabs = server.gui.add_tab_group()
-    play_tab, inspect_tab, clean_tab, sim_tab = (tabs.add_tab("Explore"), tabs.add_tab("Inspect"),
-                                               tabs.add_tab("Clean up"), tabs.add_tab("Robotics"))
-    repair_tab = tabs.add_tab("Repair")
-    references_tab = tabs.add_tab("References")
+    play_tab, obj_tab, clean_tab, sim_tab = (tabs.add_tab("Play"), tabs.add_tab("Object"),
+                                             tabs.add_tab("Scene"), tabs.add_tab("Robots"))
+    with obj_tab:
+        server.gui.add_markdown("Click an object in the scene, then open a section.")
+        inspect_tab = server.gui.add_folder("Details & placement")
+        references_tab = server.gui.add_folder("Identify with AI (SAM 3.1 + Muse)", expand_by_default=False)
+        repair_tab = server.gui.add_folder("Fix the scan", expand_by_default=False)
     head = lambda k: ctrl.label(k).split()[-1]
     ids_ = [o["id"] for o in sc.objects]
     if not ids_:
@@ -237,27 +241,59 @@ def main():
     ids_ = (ids_ * 3)[:3]
     examples = {"push": f"push the {head(ids_[0])} left", "recolour": f"make the {head(ids_[1])} red",
                 "what if": f"what if I knock the {head(ids_[2])} over", "moon": "moon gravity", "reset": "reset"}
+    class Toast:
+        """Command feedback as a short notification at the bottom instead of a growing log in the panel."""
+        visible = True
+
+        @property
+        def content(self):
+            return ""
+
+        @content.setter
+        def content(self, text):
+            import html as _html
+            body = str(text).replace("**", "").replace("`", "").strip("_ ").replace("\n- ", "\n")
+            lines = [_html.escape(x) for x in body.split("\n") if x.strip()][:5]
+            toast_state["n"] += 1
+            n = toast_state["n"]
+            toast_html.content = (
+                '<div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:30;'
+                'max-width:min(560px,90vw);background:rgba(30,30,30,.92);color:#f3f3f3;border:1px solid #ff8c42;'
+                'border-radius:10px;padding:10px 16px;font-size:13px;line-height:1.45;pointer-events:none;'
+                'box-shadow:0 4px 18px rgba(0,0,0,.4)">' + "<br>".join(lines) + "</div>")
+
+            def clear():
+                if toast_state["n"] == n:                     # a newer message replaced this one
+                    toast_html.content = ""
+            threading.Timer(4.0, clear).start()
+
+    toast_state = {"n": 0}
+    toast_html = server.gui.add_html("")
+
     with play_tab:
-        intro = server.gui.add_markdown("**Click** to select, **drag** to arrange, or type a command. "
-                                        "Use **Inspect** for names, properties, precise placement and saved layouts.")
-        interaction = server.gui.add_dropdown("interaction", ["Arrange", "Experiment"])
+        intro = server.gui.add_markdown("**Click** an object to select it, **drag** its arrows to move it, "
+                                        "or **tell it** what to do.")
+        box = server.gui.add_text("command", examples["push"] + ", then make it red")
+        go = server.gui.add_button("run command")
+        try_btn = server.gui.add_button_group("try", list(examples))
+        sel_md = server.gui.add_markdown("_nothing selected_")
+        obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
+        color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
+        scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
+        settings = server.gui.add_folder("settings", expand_by_default=False)
+    with settings:
+        interaction = server.gui.add_dropdown("interaction", ["Arrange", "Experiment"],
+                                              hint="Arrange = physics paused while you place things; Experiment = physics runs.")
         throwing = server.gui.add_checkbox("throw on drag release", False)
         detail = server.gui.add_checkbox("view-dependent object detail", True,
                                          hint="Uses colour detail already learned by the scan. Refreshes when camera/object motion settles.")
         mode_info = server.gui.add_markdown("**Arrange** · physics paused. Switch to Experiment to let objects move.")
-        box = server.gui.add_text("command", examples["push"] + ", then make it red")
-        try_btn = server.gui.add_button_group("try", list(examples))
         allow_baseten = os.environ.get("LIVESPLAT_ALLOW_BASETEN") == "1" and bool(os.environ.get("BASETEN_API_KEY"))
         planner = server.gui.add_dropdown("planner", ["local", "cached"] + (["meta"] if allow_meta else [])
                                           + (["baseten"] if allow_baseten else []),
                                           hint="local = offline rules; cached = saved Muse responses only; meta = approved "
                                                "live round; baseten = Muse Spark Open (open weights) on Baseten credit")
-        go = server.gui.add_button("run command")
-        log = server.gui.add_markdown("")
-        sel_md = server.gui.add_markdown("_nothing selected_")
-        obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
-        color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
-        scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
+    log = Toast()
     with sim_tab:
         server.gui.add_markdown("Test **robot arms** on this table: pick an arm, place it, try grasps.")
         mode_btn = server.gui.add_button("start simulation mode", visible=bool(sim_dir))
@@ -285,11 +321,11 @@ def main():
             if any(c["name"] in ("push", "drop", "throw", "stack") for c in changes):
                 ui["paused"] = False
             sync_mode()
-        lines = [f"**> {text}**"] + [f"- `{c['name']}` → {res}" for c, res in results]
+        lines = [f"{text}"] + [f"• {res}" for c, res in results]
         if note:
-            lines.append(f"- _{note}_")
+            lines.append(f"• {note}")
         history[:0] = ["\n".join(lines)]
-        log.content = "\n\n".join(history[:3])
+        log.content = "\n".join(lines)
         print("\n".join(lines), flush=True)
         show_selection()
 

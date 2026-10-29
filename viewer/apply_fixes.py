@@ -1,8 +1,8 @@
 """Apply the SAM-suggested attachment fix to every object (or listed ids) and save visual_repairs.npz.
 
 Run (WSL, cached SAM, $0 on tagged scenes): python -m viewer.apply_fixes <run_dir> [--src thrift_sfm] [--ids 1 2 3]
-Same result as "preview fix" -> "apply fix" in the viewer: splats outside the SAM masks in 2+ views are kept on
-the table (repair state 2). Existing repairs in the file are kept; the viewer loads the file at startup.
+Same result as "apply fix" in the viewer: splats outside the SAM masks in 2+ views are erased (fuzz in the air)
+or kept on the table (only those in the table band). Pinning fuzz to the table left a ghost where objects stood. Existing repairs in the file are kept; the viewer loads the file at startup.
 """
 import argparse
 import hashlib
@@ -15,7 +15,8 @@ from scene_io.thrift import load_cameras
 from viewer.app import Scene
 from viewer.sam_isolate import isolate
 
-KEEP_ON_TABLE = 2
+KEEP_ON_TABLE, ERASE = 2, -1
+TABLE_BAND = 0.02          # x table radius: splats this low are table, everything above outside the masks is fuzz
 
 
 def main():
@@ -49,9 +50,12 @@ def main():
         world = (p - sc.T[:3, 3]) @ sc.T[:3, :3]
         rep = isolate(world, props.get(str(k), {}).get("sam_prompt", f"object {k}"), cams, cache_only=True)
         state = layers[f"{k}_splat"][0]
+        state[state == KEEP_ON_TABLE] = 0                     # undo the old "pin everything" fix
         ids = rep["spill_ids"][rep["spill_ids"] < len(state)]
-        state[ids] = KEEP_ON_TABLE
-        print(f"obj {k}: {len(ids):,} of {len(state):,} splats kept on the table")
+        low = o["splat"]["means"][ids, 2] < TABLE_BAND * sc.radius
+        state[ids[low]] = KEEP_ON_TABLE                        # table bits stay on the table
+        state[ids[~low]] = ERASE                               # fuzz around the object is removed
+        print(f"obj {k}: {low.sum():,} table splats kept on the table, {(~low).sum():,} fuzz splats erased")
     payload = {}
     for name, (state, h) in layers.items():
         payload[name], payload[name + "_hash"] = state, h

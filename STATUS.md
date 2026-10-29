@@ -114,3 +114,5 @@ Updated: Oct 29.
 - Muse PROMPT_SAM validated live on table1 (approved round, \.035 for 3 objects): names, visible text (Cetaphil, SHIELD), per-view scan issues, capture guidance, repair advice remove_attachments for all three. Total spend \.328.
 
 - Baseten (Muse Spark Open) validated: tool calls and vision work; planner option baseten (multi-step stack command works). Spark Open sends ids as numbers, coerced to text.
+
+- Fix semantics corrected: SAM spill splats in the air are ERASED (fuzz), only table-band splats stay on the table (pinning fuzz left a ghost at the original spot). UI regrouped into 4 tabs; bottom toast for command feedback.
