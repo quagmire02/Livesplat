@@ -15,3 +15,9 @@
 - Medium priority: measured dimensions and metric calibration. Current dimensions are scene units.
 - Multi-client shading uses the most recently updated camera; brush depth selection is heuristic.
 
+
+## 2026-10-29 (later): SAM-grounded object reference panel
+- sam_isolate.py: Isolate with SAM 3.1 in 3 distinct source views (cache-first: same frames/prompts as segment.sam_vote, $0 on tagged scenes). Per view: coverage (mask filled by the reconstruction) and spill (object splats outside the mask). Masked thumbnails + diagnosis overlays (green outline, magenta = not reconstructed, red = attachments).
+- object_card.py: "Isolate with SAM 3.1" button; Muse analysis uses masked crops + overlays + metrics (PROMPT_SAM) and returns category, scan_issues, capture_next, repair_advice (remove_attachments|recapture|none). Suggested fix = splats outside the masks in 2+ views -> "preview fix" (yellow, Repair workspace) / "apply fix" (keep on table; undo/save in Repair).
+- table1 (cached, $0): coverage 98-100% in all views; suggested fixes bottle 6,268, can 525, roll 3,653 splats (table skirt at the base, fuzz).
+- Not done: live Muse validation of PROMPT_SAM (needs an approved round); online product search (needs a search source + permission). Reference photos stay evidence only, never geometry.

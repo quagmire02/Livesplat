@@ -360,6 +360,7 @@ def main():
             show_selection()
     with references_tab:
         cards = ObjectCards(server, sc, ctrl, a.run_dir, a.src, allow_meta, reference_sidebar, confirm_reference_name)
+        cards.repair = repair                               # SAM-suggested fixes go through the repair workspace
 
     @server.scene.on_click()
     def _(ev):

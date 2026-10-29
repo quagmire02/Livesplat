@@ -107,3 +107,6 @@ Updated: Oct 29.
 
 ## Dependencies added
 - viser, mujoco, trimesh, scikit-learn, sam2, meta-sam-parser (SAM 3.1 decoder), pycolmap (global SfM, CPU).
+
+## SAM-grounded reference panel (2026-10-29)
+- Select -> Isolate with SAM 3.1 (cached, $0) -> Muse analyses masked crops + diagnosis overlays -> card with scan issues, capture guidance, suggested fix (preview/apply via Repair). Live Muse round for PROMPT_SAM not yet approved.
