@@ -19,10 +19,10 @@ def footprint(hull_local, grow=1.15):
     return c + (poly - c) * grow
 
 
-def fill_splat(bg, base, hull_local, radius, cells=48, ring=(1.05, 1.8), k=8):
+def fill_splat(bg, base, hull_local, radius, cells=48, ring=(1.05, 1.8), k=8, polygon=None):
     """bg: activated background splat in the table frame. Returns an activated splat in the
     object's local frame (origin = base), or None if no table colour is found around it."""
-    poly = footprint(hull_local)
+    poly = footprint(hull_local) if polygon is None else polygon
     c = poly.mean(0)
     r_fp = np.linalg.norm(poly - c, axis=1).max()
     cell = 2 * r_fp / cells

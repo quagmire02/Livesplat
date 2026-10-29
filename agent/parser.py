@@ -64,6 +64,7 @@ def normalize(text, names):
 
 
 def _num(s):
+    s = re.sub(r"\bobject\s+\d+\b|#\d+\b", "", s)
     m = re.search(r"(-?\d+(?:\.\d+)?)\s*(cm|mm|m|kg|g)?\b", s)
     if not m:
         return None
@@ -127,7 +128,7 @@ def _clause(c, names, last):
         return [{"name": "stack", "args": {"obj": str(objs[0]), "base": str(objs[1])}}]
     if re.search(r"\b(drop|let .* fall)\b", c):
         h = _num(c)
-        return [{"name": "drop", "args": {"obj": o, **({"height": h} if h else {})}}]
+        return [{"name": "drop", "args": {"obj": o, **({"height": h} if h is not None else {})}}]
     if re.search(r"\b(throw|toss|launch|flip)\b", c):
         return [{"name": "throw", "args": {"obj": o}}]
     if re.search(r"\b(push|nudge|shove|slide|knock|move|kick)\b", c):
@@ -148,7 +149,7 @@ def _clause(c, names, last):
         m = re.search(r"(\d+(?:\.\d+)?)\s*(x|times)\s*(bigger|larger|smaller)?", c)
         if m:
             f = float(m.group(1))
-            return [{"name": "scale", "args": {"obj": o, "factor": 1 / f if m.group(3) == "smaller" else f}}]
+            return [{"name": "scale", "args": {"obj": o, "factor": 1 / f if f > 0 and m.group(3) == "smaller" else f}}]
         if re.search(r"\b(twice as big|double( the)? size|bigger|larger)\b", c):
             return [{"name": "scale", "args": {"obj": o, "factor": 2.0 if re.search("twice|double", c) else 1.5}}]
         if re.search(r"\b(half( the)? size|smaller|tiny)\b", c):

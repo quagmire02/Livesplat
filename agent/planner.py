@@ -12,7 +12,8 @@ SYSTEM = ("You control a physics sandbox of real objects on a table. Use the too
           "chain several calls if needed. Directions are relative to the user's view. If the request "
           "cannot be done with the tools, call no tool and say briefly what is possible instead. "
           "For questions like 'what if' or 'will it fall', use simulate. Objects: {objects}. "
-          "Gravity: {g:.2f} m/s2.")
+          "Gravity: {g:.2f} scene units/s2. Scene scale is uncalibrated; do not claim precise metric dimensions. "
+          "Mass and friction are estimates unless the user supplied them.")
 
 
 def scene_summary(ctrl):
@@ -21,15 +22,20 @@ def scene_summary(ctrl):
                      for o in ctrl.sc.objects)
 
 
-def run_meta(text, ctrl, max_rounds=3):
+def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False):
     """Tool-use loop: Spark calls tools, sees the results, and may continue (e.g. list, then stack).
     Returns (list of (call, result), final text). NOT yet tested with paid calls (multi-round)."""
     from backends.meta import client
     msgs = [{"role": "system", "content": SYSTEM.format(objects=scene_summary(ctrl), g=ctrl.w.gravity)},
             {"role": "user", "content": text}]
+    if default is not None and default in ctrl.names:
+        msgs[0]["content"] += f" Selected object: id {default} ({ctrl.label(default)}); 'it' refers to this selection."
     done, note = [], ""
     for _ in range(max_rounds):
-        r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000)
+        try:
+            r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000, cache_only=cache_only)
+        except client.PermissionRequired as e:
+            return done, str(e)
         if r.get("_status") != 200:
             return done, f"Spark error: {str(r)[:200]}"
         msg = r["choices"][0]["message"]
@@ -54,8 +60,8 @@ def run_meta(text, ctrl, max_rounds=3):
 
 def handle(text, ctrl, backend="local", default=None):
     """Returns (list of (call, result) pairs, note)."""
-    if backend == "meta":
-        return run_meta(text, ctrl)
+    if backend in ("meta", "cached"):
+        return run_meta(text, ctrl, default=default, cache_only=backend == "cached")
     else:
         calls, unknown = parser.parse(text, ctrl.names, default)
         note = ("not understood: " + "; ".join(f"'{u}'" for u in unknown)) if unknown else ""

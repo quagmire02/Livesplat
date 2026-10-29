@@ -18,6 +18,10 @@ from physics.world import World, hull_vertices, stands_alone
 from scene_io import splat
 from segment.cluster import in_polygon
 from viewer.holefill import fill_splat
+from viewer.session import EditorSession
+from viewer.editor import EditorPanel
+from viewer.contact import at_capture, split_contact, table_patch_polygon
+from scene_io.appearance import view_rgb
 
 DEFAULT_DENSITY = 300.0          # kg/m^3: light household items; Spark properties replace this
 DEFAULT_FRICTION = 0.5
@@ -46,7 +50,7 @@ def solid_points(a, min_opacity=0.5, k=12, keep=2.0):
 
 
 class Scene:
-    def __init__(self, run_dir, src="thrift_sfm", max_bg=1_200_000, crop=1.6):
+    def __init__(self, run_dir, src="thrift_sfm", max_bg=1_200_000, crop=1.6, separate_contact=True):
         run = Path(run_dir)
         al = json.loads((run / "align.json").read_text())
         self.T = np.array(al["T_world_to_table"])
@@ -92,13 +96,23 @@ class Scene:
             if (labels == -k).any():
                 refl = splat.activate(splat.subset(raw, labels == -k))
                 refl["means"] = (refl["means"] - base).astype(np.float32)
+            poly = table_patch_polygon(a, refl, r) if separate_contact else None
+            body, contact = split_contact(a, r) if separate_contact else (np.ones(len(a["means"]), bool), None)
+            contact_part = {key: v[contact] for key, v in a.items()} if contact is not None and contact.any() else None
+            appearance = {key: raw[key][labels == k][body] for key in ("sh0", "shN")}
+            moving = {key: v[body] for key, v in a.items()}
             self.objects.append({"id": k, "base": base, "splat": a, "refl": refl, "hull": hull,
                                  "volume": vol, "mass": max(0.01, DEFAULT_DENSITY * vol),
                                  "friction": DEFAULT_FRICTION, "bounce": 0.1,
-                                 "fill": fill_splat(self.bg, base, hull, r)})
+                                 "fill": fill_splat(self.bg, base, hull, r, polygon=poly),
+                                 "contact": contact_part, "appearance": appearance,
+                                 "capture_means": a["means"]})
+            self.objects[-1]["splat"] = moving
+            if separate_contact:
+                print(f"  obj {k}: {int(body.sum()):,} movable splats; {int(contact.sum()):,} anchored contact splats")
             fr = run / "gen" / f"fill_rgb_{k}.npy"              # Muse Image table texture (holefill_ai)
             f_ = self.objects[-1]["fill"]
-            if f_ is not None and fr.exists() and len(np.load(fr)) == len(f_["means"]):
+            if not separate_contact and f_ is not None and fr.exists() and len(np.load(fr)) == len(f_["means"]):
                 f_["rgb"] = np.load(fr)
 
         pp = run / "props.json"                         # Spark estimates (agent/properties.py)
@@ -109,6 +123,7 @@ class Scene:
                 o["mass"] = float(p.get("mass_kg", o["mass"]))
                 o["friction"] = float(p.get("friction", o["friction"]))
                 o["bounce"] = float(p.get("bounce", o["bounce"]))
+                o["property_source"] = "AI estimate" if p else "default density / friction"
 
     def make_object(self, k, a):
         """New object from an activated splat subset in the table frame (click-to-add)."""
@@ -150,9 +165,11 @@ def main():
     ap.add_argument("--src", default="thrift_sfm")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--sim", help="sim package for Simulation mode (default: <run>/sim_m or <run>/sim)")
+    ap.add_argument("--load-layout", action="store_true", help="restore editor_state.json at startup (physics stays paused)")
+    ap.add_argument("--legacy-contact", action="store_true", help="comparison only: keep the old table/object base assignment")
     a = ap.parse_args()
 
-    sc = Scene(a.run_dir, a.src)
+    sc = Scene(a.run_dir, a.src, separate_contact=not a.legacy_contact)
     world = World(sc.objects, sc.polygon, floor_z=sc.floor_z)
     lock = threading.RLock()
     r = sc.radius
@@ -160,13 +177,18 @@ def main():
     server.scene.set_up_direction("+z")
     server.gui.configure_theme(control_layout="floating", control_width="medium", show_logo=False)
     bg_holder = {"node": add_splat(server, "/bg", sc.bg)}
-    nodes, refl_nodes, fill_nodes = {}, {}, {}
-    cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r])}
-    ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": False, "sim": False}
+    nodes, refl_nodes, fill_nodes, contact_nodes = {}, {}, {}, {}
+    appearance_state = {}
+    cam = {"pos": np.array([1.3 * r, -1.3 * r, 1.1 * r]), "look": np.array([0.0, 0.0, 0.1 * r]), "updated": 0.0}
+    ui = {"sel": None, "held": False, "target": None, "trail": [], "paused": True, "sim": False}
 
     def build_nodes(k):
         o = next(o for o in sc.objects if o["id"] == k)
         nodes[k] = add_splat(server, f"/obj{k}", o["splat"])
+        appearance_state.pop(k, None)
+        if o.get("contact") is not None:
+            contact_nodes[k] = add_splat(server, f"/contact{k}", o["contact"])
+            contact_nodes[k].position = tuple(o["base"])
         if o["refl"] is not None:
             refl_nodes[k] = add_splat(server, f"/refl{k}", o["refl"])
             refl_nodes[k].position = tuple(o["base"])
@@ -178,6 +200,10 @@ def main():
     for o in sc.objects:
         build_nodes(o["id"])
     ctrl = Controller(sc, world, a.run_dir, on_appearance=build_nodes, camera=lambda: (cam["pos"], cam["look"]))
+    session = EditorSession(ctrl, a.run_dir, a.src)
+    if a.load_layout:
+        session.load()
+    editor = None
     print(f"{len(sc.objects)} objects, table radius {r:.3f}, floor z {sc.floor_z:.3f}")
 
     @server.on_client_connect
@@ -188,6 +214,7 @@ def main():
         @client.camera.on_update
         def _(c):
             cam["pos"], cam["look"] = np.array(c.position), np.array(c.look_at)
+            cam["updated"] = time.monotonic()
 
     # ---- panel (compact) -----------------------------------------------------
     allow_meta = os.environ.get("LIVESPLAT_ALLOW_META") == "1"
@@ -199,17 +226,29 @@ def main():
         control_layout="floating", control_width="medium", dark_mode=True, show_logo=False,
         show_share_button=False, brand_color=(255, 140, 66))
     tabs = server.gui.add_tab_group()
-    play_tab, clean_tab, sim_tab = tabs.add_tab("Play"), tabs.add_tab("Clean up"), tabs.add_tab("Simulate")
+    play_tab, inspect_tab, clean_tab, sim_tab = (tabs.add_tab("Explore"), tabs.add_tab("Inspect"),
+                                               tabs.add_tab("Clean up"), tabs.add_tab("Robotics"))
+    repair_tab = tabs.add_tab("Repair")
+    references_tab = tabs.add_tab("References")
     head = lambda k: ctrl.label(k).split()[-1]
-    ids_ = [o["id"] for o in sc.objects] + [1, 1, 1]
+    ids_ = [o["id"] for o in sc.objects]
+    if not ids_:
+        raise RuntimeError("No objects were found. Check segmentation before opening the editor.")
+    ids_ = (ids_ * 3)[:3]
     examples = {"push": f"push the {head(ids_[0])} left", "recolour": f"make the {head(ids_[1])} red",
                 "what if": f"what if I knock the {head(ids_[2])} over", "moon": "moon gravity", "reset": "reset"}
     with play_tab:
-        intro = server.gui.add_markdown("**Click** an object to select it, **drag** the arrows to move it "
-                                        "(let go while moving to throw), or **type** what should happen.")
+        intro = server.gui.add_markdown("**Click** to select, **drag** to arrange, or type a command. "
+                                        "Use **Inspect** for names, properties, precise placement and saved layouts.")
+        interaction = server.gui.add_dropdown("interaction", ["Arrange", "Experiment"])
+        throwing = server.gui.add_checkbox("throw on drag release", False)
+        detail = server.gui.add_checkbox("view-dependent object detail", True,
+                                         hint="Uses colour detail already learned by the scan. Refreshes when camera/object motion settles.")
+        mode_info = server.gui.add_markdown("**Arrange** · physics paused. Switch to Experiment to let objects move.")
         box = server.gui.add_text("command", examples["push"] + ", then make it red")
         try_btn = server.gui.add_button_group("try", list(examples))
-        planner = server.gui.add_dropdown("planner", ["local", "meta"]) if allow_meta else None
+        planner = server.gui.add_dropdown("planner", ["local", "cached"] + (["meta"] if allow_meta else []),
+                                          hint="local = offline rules; cached = saved Muse responses only; meta = approved live round")
         go = server.gui.add_button("run command")
         log = server.gui.add_markdown("")
         sel_md = server.gui.add_markdown("_nothing selected_")
@@ -229,7 +268,20 @@ def main():
 
     def run_command(text):
         with lock:
-            results, note = handle(text, ctrl, planner.value if planner else "local", default=ui["sel"])
+            before = session.snapshot()
+            try:
+                results, note = handle(text, ctrl, planner.value if planner else "local", default=ui["sel"])
+            except Exception as e:
+                session.restore(before)
+                log.content = f"Command failed; the scene was restored: {e}"
+                return
+            changes = [c for c, res in results if c["name"] not in ("measure", "list_objects", "simulate")
+                       and not res.startswith("error:")]
+            if changes:
+                session.record(text, before)
+            if any(c["name"] in ("push", "drop", "throw", "stack") for c in changes):
+                ui["paused"] = False
+            sync_mode()
         lines = [f"**> {text}**"] + [f"- `{c['name']}` → {res}" for c, res in results]
         if note:
             lines.append(f"- _{note}_")
@@ -257,19 +309,65 @@ def main():
 
     def show_selection():
         k = ui["sel"]
-        if k is None or not world.present(k):
+        cards.select(k if k in ctrl.names else None)
+        if k is None or k not in ctrl.names:
             ui["sel"] = None
             gizmo.visible = False
             sel_md.content = "_nothing selected_"
+            if editor is not None:
+                editor.refresh()
             return
         o = ctrl.obj(k)
         sel_md.content = (f"**{ctrl.label(k)}** · {o['mass']:.2f} kg · friction {o['friction']:.2f} "
                           f"· size x{o['scale']:.2g}")
-        gizmo.visible = True
+        gizmo.visible = world.present(k) and not ui["sim"]
+        if editor is not None:
+            editor.refresh()
+
+    def select_object(k):
+        ui["sel"], ui["held"], ui["target"] = k, False, None
+        if k is not None and world.present(k):
+            p, q = world.pose(k)
+            gizmo.position, gizmo.wxyz = tuple(p + mid_offset(k, q)), tuple(q)
+        show_selection()
+        sync_mode()
+
+    def sync_mode():
+        interaction.value = "Arrange" if ui["paused"] else "Experiment"
+        mode_info.content = ("**Arrange** · physics paused." if ui["paused"] else
+                             "**Experiment** · physics running. Mass and friction are estimates.")
+
+    @interaction.on_update
+    def _(ev):
+        with lock:
+            ui["paused"] = interaction.value == "Arrange"
+            sync_mode()
+
+    with inspect_tab:
+        editor_root = server.gui.add_folder("Object inspector")
+        with editor_root:
+            editor = EditorPanel(server, ctrl, session, lock, ui, select_object, a.run_dir)
+
+    from viewer.repair import RepairPanel
+    with repair_tab:
+        repair = RepairPanel(server, sc, world, ui, lock, nodes, contact_nodes, add_splat, a.run_dir)
+    from viewer.object_card import ObjectCards
+    reference_sidebar = server.gui.add_html('')
+    def confirm_reference_name(k, name):
+        with lock:
+            session.checkpoint("confirm reference name")
+            ctrl.names[k] = [name.strip()[:120]] + ctrl.names[k]
+            show_selection()
+    with references_tab:
+        cards = ObjectCards(server, sc, ctrl, a.run_dir, a.src, allow_meta, reference_sidebar, confirm_reference_name)
 
     @server.scene.on_click()
     def _(ev):
         if ui["sim"]:                                     # simulation mode: tabletop objects are hidden
+            return
+        if repair.active.value:
+            repair.click(ev)
+            sync_mode()
             return
         if ui.get("adding"):
             ui["adding"] = False
@@ -278,16 +376,14 @@ def main():
             return
         with lock:
             k = pick(ev.ray_origin, ev.ray_direction, sc.objects, world)
-        ui["sel"] = k
-        if k is not None:
-            p, q = world.pose(k)
-            gizmo.position, gizmo.wxyz = tuple(p + mid_offset(k, q)), tuple(q)
-        show_selection()
+            select_object(k)
 
     @gizmo.on_drag_start
     def _(_):
         if ui["sel"] is not None:
-            ui["held"], ui["trail"] = True, []
+            with lock:
+                session.checkpoint("drag object")
+                ui["held"], ui["trail"], ui["target"] = True, [], None
 
     @gizmo.on_update
     def _(_):
@@ -298,18 +394,25 @@ def main():
 
     @gizmo.on_drag_end
     def _(_):
-        ui["held"] = False
+        with lock:
+            if ui["sel"] is not None and ui["target"] is not None and world.present(ui["sel"]):
+                world.place(ui["sel"], *ui["target"])
+            ui["held"] = False
         k, tr = ui["sel"], ui["trail"]
         if k is None or len(tr) < 2:
+            show_selection()
             return
         (t0, p0), (t1, p1) = tr[0], tr[-1]
-        if time.time() - t1 < 0.15 and t1 > t0:              # still moving at release: throw
+        if throwing.value and time.time() - t1 < 0.15 and t1 > t0:
             v = 0.6 * (p1 - p0) / (t1 - t0)
             s = np.linalg.norm(v)
             if s > 0.5:                                    # a slow release just puts it down
                 v = v * min(1.0, 2.5 / s)
                 with lock:
                     world.throw(k, tuple(v))
+                    ui["paused"] = False
+                    sync_mode()
+        show_selection()
 
     @obj_btn.on_click
     def _(_):
@@ -325,9 +428,12 @@ def main():
             return
         k = ui["sel"]
         if color.value == "(original)":
-            o = ctrl.obj(k)
-            o["splat"]["rgb"] = o["rgb0"].copy()
-            build_nodes(k)
+            with lock:
+                session.checkpoint("restore colour")
+                o = ctrl.obj(k)
+                o["splat"]["rgb"] = o["rgb0"].copy()
+                o["color"] = None
+                build_nodes(k)
         else:
             run_command(f"make object {k} {color.value}")
 
@@ -339,7 +445,8 @@ def main():
     # The whole table column: a glossy top is made of faint splats and reflections below the surface.
     on_table = (sc.bg["means"][:, 2] < 0.03 * r) & in_polygon(sc.bg["means"][:, :2], sc.polygon * 1.05)
     with play_tab:
-        add_btn = server.gui.add_button("add missed object (then click it)")
+        add_btn = server.gui.add_button("add missed object (then click it)", disabled=not allow_meta,
+                                        hint="Uses SAM. Enable only during an explicitly approved API round.")
 
     @add_btn.on_click
     def _(_):
@@ -347,6 +454,8 @@ def main():
         add_btn.label = "click the missed object in the scene..."
 
     def add_clicked(ray_o, ray_d):
+        from backends.meta.client import require_permission
+        require_permission()
         from viewer.add_object import ray_hit, segment_click
         from scene_io.thrift import load_cameras
         p = ray_hit(sc, keep, ray_o, ray_d)
@@ -370,10 +479,13 @@ def main():
             keep[sel] = False
             refresh_bg()
             build_nodes(k)
-            lab_path = Path(a.run_dir) / "labels.npy"          # persist: these splats are object k now
+            lab_path = Path(a.run_dir) / a.src / "labels.npy"
+            if not lab_path.exists():
+                lab_path = Path(a.run_dir) / "labels.npy"
             labels = np.load(lab_path) if lab_path.exists() else np.load(Path(a.run_dir) / "labels_geo.npy")
             labels[sc.bg_idx[sel]] = k
             np.save(lab_path, labels)
+            session.geometry_changed()
         ui["sel"] = k
         log.content = f"**added object {k}** ({int(sel.sum()):,} splats, {n} views) · try: push object {k}"
         show_selection()
@@ -404,7 +516,7 @@ def main():
 
     @server.scene.on_rect_select(modifier="shift")
     def _(ev):
-        if ui["sim"]:
+        if ui["sim"] or repair.active.value:
             return
         from scipy.spatial.transform import Rotation
         cam = ev.client.camera
@@ -438,7 +550,8 @@ def main():
             keep[undo_stack.pop()] = True
             refresh_bg()
 
-    tabletop_gui = [intro, box, try_btn, go, log, sel_md, obj_btn, color, scene_btn, add_btn, *clean_widgets] + ([planner] if planner else [])
+    tabletop_gui = [intro, interaction, throwing, detail, mode_info, box, try_btn, go, log, sel_md, obj_btn, color,
+                    scene_btn, add_btn, *clean_widgets] + ([planner] if planner else [])
 
     @mode_btn.on_click
     def _(_):
@@ -448,9 +561,15 @@ def main():
             with sim_tab:
                 sim_mode["obj"] = SimMode(server, sim_dir)
         ui["sim"] = not ui["sim"]
+        reference_sidebar.visible = not ui["sim"]
+        repair.active.value = False
+        repair.isolate.value = False
+        repair.clear()
+        repair.tick()
         ui["sel"], ui["held"] = None, False
+        editor_root.visible = not ui["sim"]
         sim_mode["obj"].set_visible(ui["sim"])
-        for n in [bg_holder["node"], *nodes.values(), *refl_nodes.values(), *fill_nodes.values()]:
+        for n in [bg_holder["node"], *nodes.values(), *refl_nodes.values(), *fill_nodes.values(), *contact_nodes.values()]:
             n.visible = not ui["sim"]
         for g in tabletop_gui:
             g.visible = not ui["sim"]
@@ -464,45 +583,83 @@ def main():
             run_command("reset")
         elif v == "pause":
             ui["paused"] = not ui["paused"]
+            sync_mode()
             log.content = "_paused_" if ui["paused"] else "_running_"
         else:
             run_command("moon gravity" if v == "moon g" else "earth gravity")
 
     # ---- loop ----------------------------------------------------------------
     frame = 1 / 60
+    last_detail = 0.0
     while True:
         t0 = time.time()
-        if not ui["paused"] and not ui["sim"]:
+        if not ui["sim"]:
             with lock:
                 k = ui["sel"]
                 if ui["held"] and k is not None and world.present(k) and ui["target"] is not None:
                     world.place(k, *ui["target"])                 # held: follow the gizmo
-                world.step(frame)
+                if not ui["paused"]:
+                    world.step(frame)
                 state = {}
                 for o in sc.objects:
                     kk = o["id"]
                     present = world.present(kk)
                     pose = world.pose(kk) if present else None
                     upright = present and abs(pose[0][2] - world.rest[kk][2]) < 0.01 and abs(pose[1][0]) > 0.996
-                    state[kk] = (present, pose, world.at_rest_pose(kk), upright)
+                    captured = at_capture(pose, o["base"], r, o["scale"])
+                    state[kk] = (present, pose, captured, upright)
             with server.atomic():
                 for kk, (present, pose, rest, upright) in state.items():
                     nodes[kk].visible = present
                     if present:
                         nodes[kk].position, nodes[kk].wxyz = tuple(pose[0]), tuple(pose[1])
                     if kk in refl_nodes:
-                        refl_nodes[kk].visible = upright
-                        if upright:
-                            w_, z_ = pose[1][0], pose[1][3]           # yaw-only part of the rotation
-                            n_ = max(np.hypot(w_, z_), 1e-9)
-                            refl_nodes[kk].position = (pose[0][0], pose[0][1], 0.0)
-                            refl_nodes[kk].wxyz = (w_ / n_, 0.0, 0.0, z_ / n_)
+                        # Captured reflections include table pixels: never translate them with an object.
+                        refl_nodes[kk].visible = rest
+                    if kk in contact_nodes:
+                        contact_nodes[kk].visible = rest
                     if kk in fill_nodes:
                         fill_nodes[kk].visible = not rest
+                isolated = int(repair.pick.value) if repair.isolate.value else None
+                bg_holder["node"].visible = isolated is None
+                if isolated is not None:
+                    for group in (nodes, contact_nodes, refl_nodes, fill_nodes):
+                        for kk, node in group.items():
+                            node.visible = node.visible and kk == isolated
+                    for group in (refl_nodes, fill_nodes):
+                        for node in group.values():
+                            node.visible = False
+                if repair.active.value:
+                    gizmo.visible = False
+                with lock:
+                    repair.tick()
                 k = ui["sel"]
                 if k is not None and not ui["held"] and state.get(k, (False,))[0]:
                     gp, gq = state[k][1]
                     gizmo.position, gizmo.wxyz = tuple(gp + mid_offset(k, gq)), tuple(gq)
+            now = time.monotonic()
+            if now - last_detail > 0.4 and now - cam["updated"] > 0.2 and not ui["held"]:
+                last_detail = now
+                with lock:
+                    for o in sc.objects:
+                        k = o["id"]
+                        if not world.present(k) or o.get("appearance") is None or o.get("color") is not None:
+                            continue
+                        if not ui["paused"] and world.speed(k) > 0.02:
+                            continue
+                        p, q = world.pose(k)
+                        key = np.r_[cam["pos"], p, q, o["scale"], float(detail.value)]
+                        if k in appearance_state and np.allclose(key, appearance_state[k], atol=1e-4, rtol=0):
+                            continue
+                        if detail.value:
+                            R = splat.quat_wxyz_to_mat(q[None])[0]
+                            local_camera = (cam["pos"] - p) @ R
+                            dirs = (o["splat"]["means"] - local_camera) @ sc.T[:3, :3]
+                            rgb = view_rgb(o["appearance"]["sh0"], o["appearance"]["shN"], dirs)
+                        else:
+                            rgb = o["splat"]["rgb"]
+                        nodes[k].rgbs = rgb
+                        appearance_state[k] = key
         time.sleep(max(0.0, frame - (time.time() - t0)))
 
 

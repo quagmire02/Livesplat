@@ -8,3 +8,6 @@ Files:
 - refine.sh, refine_objects.py — Object refinement on native-resolution crops. Background stays frozen. Use only if the video is wider than the training width.
 Inputs: video. Outputs: runs/<name>/{thrift, thrift_sfm, build.json, build.log}.
 Status: Works on table1 (low). Refinement gives no gain on a 1568 px video. A 4K video is necessary to show a gain.
+Build is local by default. Use --tag to request Spark/SAM tagging; cached results are free to replay, while cache misses require an explicitly approved API round (LIVESPLAT_ALLOW_META=1). --no-tag remains supported.
+
+- [CHANGE_NOTES.md](CHANGE_NOTES.md) — Short implementation summary and remaining gaps (Oct 29).

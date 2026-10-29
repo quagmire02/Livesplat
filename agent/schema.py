@@ -3,6 +3,7 @@
 Every tool call is {"name": str, "args": dict}. validate() returns an error string or None.
 Object arguments are object names or ids; the controller resolves them.
 """
+import math
 
 COLORS = {
     "red": (0.85, 0.12, 0.10), "green": (0.15, 0.70, 0.20), "blue": (0.12, 0.35, 0.90),
@@ -41,7 +42,7 @@ TOOLS = [
     _fn("scale", "Scale an object's size (mass scales with volume).", {"obj": _OBJ, "factor": {"type": "number", "description": "0.3 .. 3"}}, ["obj", "factor"]),
     _fn("remove", "Remove an object from the scene.", {"obj": _OBJ}, ["obj"]),
     _fn("restore", "Bring back a removed object and undo its colour/scale changes.", {"obj": _OBJ}, ["obj"]),
-    _fn("reset", "Put every object back where it started (keeps property changes)."),
+    _fn("reset", "Reset positions, colours, sizes, removed objects, properties and gravity to the capture."),
     _fn("simulate", "Predict without showing: apply actions, run physics for some seconds, report what happens.",
         {"actions": {"type": "array", "items": {"type": "object"}, "description": "list of {name, args} action calls"},
          "seconds": {"type": "number", "description": "default 2"}}, ["actions"]),
@@ -53,9 +54,13 @@ LIMITS = {"speed": (0.05, 5.0), "height": (0.0, 2.0), "kg": (0.001, 50.0), "mu":
 
 
 def validate(call):
+    if not isinstance(call, dict):
+        return "tool call must be an object"
     name, args = call.get("name"), call.get("args", {})
-    if name not in TOOL_NAMES:
+    if not isinstance(name, str) or name not in TOOL_NAMES:
         return f"unknown tool '{name}'"
+    if not isinstance(args, dict):
+        return f"{name}: args must be an object"
     spec = next(t["function"]["parameters"] for t in TOOLS if t["function"]["name"] == name)
     for r in spec["required"]:
         if r not in args:
@@ -65,17 +70,23 @@ def validate(call):
             return f"{name}: unknown argument '{k}'"
         p = spec["properties"][k]
         if p.get("type") == "number":
-            if not isinstance(v, (int, float)):
-                return f"{name}: '{k}' must be a number"
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                return f"{name}: '{k}' must be a finite number"
             lo, hi = LIMITS.get(k, (-1e9, 1e9))
             if not lo <= v <= hi:
                 return f"{name}: '{k}'={v} outside [{lo}, {hi}]"
         if "enum" in p and v not in p["enum"]:
             return f"{name}: '{k}' must be one of {p['enum']}"
+        if p.get("type") == "string" and (not isinstance(v, str) or not v.strip()):
+            return f"{name}: '{k}' must be non-empty text"
+        if p.get("type") == "array" and not isinstance(v, list):
+            return f"{name}: '{k}' must be a list"
     if name == "simulate":
+        if not 1 <= len(args["actions"]) <= 32:
+            return "simulate: provide 1 to 32 actions"
         for c in args["actions"]:
-            if c.get("name") not in ACTIONS:
-                return f"simulate: only {sorted(ACTIONS)} allowed inside, got '{c.get('name')}'"
+            if not isinstance(c, dict) or not isinstance(c.get("name"), str) or c["name"] not in ACTIONS:
+                return f"simulate: only {sorted(ACTIONS)} allowed inside"
             err = validate(c)
             if err:
                 return f"simulate: {err}"

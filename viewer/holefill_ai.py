@@ -61,6 +61,7 @@ def muse_edit(img, prompt):
            "images": [{"image_url": client.image_data_uri(Image.fromarray(img), fmt="PNG")}]}
     hit = cache.get(req)
     if hit is None:
+        client.require_permission()
         budget.check(0.01, "muse-image edit")
         r = requests.post(f"{client.BASE}/images/edits", headers=client._headers(), json=req, timeout=300)
         budget.record(0.01, "muse-image edit")

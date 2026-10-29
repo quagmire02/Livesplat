@@ -49,7 +49,7 @@ def sam_view(k, props, objs_world, cams, every=3, pad=0.12):
         uri = client.image_data_uri(img, quality=90)              # same request as sam_vote -> cache hit
         chosen = {}
         for j, Pw in objs_world.items():
-            res = client.sam31_image(props[str(j)]["sam_prompt"], uri)
+            res = client.sam31_image(props[str(j)]["sam_prompt"], uri, cache_only=True)
             if res["status"] != 200:
                 continue
             masks = parse_image(res["raw"], (H, W))

@@ -5,4 +5,8 @@ Files:
 - meta/client.py — sam31_image, spark_chat. Every call goes through the cache and the budget guard.
 - meta/sam_parse.py — SAM 3.1 stream to full-frame masks (meta-sam-parser).
 Rule: Paid calls only in approved API rounds (CLAUDE.md rule 1).
+Network requests require LIVESPLAT_ALLOW_META=1 in addition to a key and the budget guard. Default is cached responses only; a missing entry raises PermissionRequired. Explicit cache_only stays offline even when live access is enabled. SAM retries recheck permission and budget. Muse nullable tool-message content is supported.
+The user's $150 hackathon credits are not permission to call models or to raise the configured per-round budget. Keep the current budget until an approved round specifies otherwise.
 Status: Total spend $0.0511.
+
+- [CHANGE_NOTES.md](CHANGE_NOTES.md) — Short implementation summary and remaining gaps (Oct 29).

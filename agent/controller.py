@@ -28,6 +28,8 @@ class Controller:
         for o in self.sc.objects:
             o.setdefault("rgb0", o["splat"]["rgb"].copy())
             o.setdefault("scale", 1.0)
+            o.setdefault("color", None)
+            o.setdefault("property_source0", o.get("property_source", "scan estimates/defaults"))
             o.setdefault("defaults", {"mass": o["mass"], "friction": o["friction"], "bounce": o["bounce"]})
 
     # ---- names -------------------------------------------------------------
@@ -38,7 +40,7 @@ class Controller:
         if p.exists():
             given = {int(k): v if isinstance(v, list) else [v] for k, v in json.loads(p.read_text()).items()}
         heights = {o["id"]: o["hull"][:, 2].max() for o in self.sc.objects}
-        tallest = max(heights, key=heights.get)
+        tallest = max(heights, key=heights.get) if heights else None
         out = {}
         for o in self.sc.objects:
             c = color_name(np.median(o["splat"]["rgb"], 0))
@@ -65,12 +67,13 @@ class Controller:
 
     def resolve(self, ref):
         ref = str(ref).lower().strip().removeprefix("the ").strip()
-        for k, ns in self.names.items():
-            if ref in ns:
-                return k
-        for k, ns in self.names.items():                  # partial: "bottle" matches "lotion bottle"
-            if any(ref in n or n in ref for n in ns if len(n) > 2):
-                return k
+        matches = [k for k, ns in self.names.items() if ref in ns]
+        if not matches and ref:
+            matches = [k for k, ns in self.names.items() if any(ref in n or n in ref for n in ns if len(n) > 2)]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise KeyError(f"'{ref}' matches several objects; use " + ", ".join(f"object {k}" for k in matches))
         raise KeyError(f"no object called '{ref}'. Objects: " + ", ".join(self.label(k) for k in self.names))
 
     def obj(self, k):
@@ -99,7 +102,7 @@ class Controller:
 
     def _tilt(self, k):
         q = self.w.pose(k)[1]
-        return float(np.degrees(2 * np.arccos(min(1.0, abs(q[0])))))
+        return float(np.degrees(np.arccos(np.clip(1 - 2 * (q[1] ** 2 + q[2] ** 2), -1, 1))))
 
     def _on_table(self, k):
         from segment.cluster import in_polygon
@@ -116,6 +119,8 @@ class Controller:
             return getattr(self, "t_" + call["name"])(**call.get("args", {}))
         except KeyError as e:
             return f"error: {e.args[0]}"
+        except (ValueError, TypeError) as e:
+            return f"error: {e}"
 
     # ---- tools -------------------------------------------------------------
     def t_list_objects(self):
@@ -129,25 +134,25 @@ class Controller:
         k = self.resolve(obj)
         o = self.obj(k)
         ext = o["hull"].max(0) - o["hull"].min(0)
-        return (f"{self.label(k)}: {ext[0] * 100:.1f} x {ext[1] * 100:.1f} x {ext[2] * 100:.1f} cm (W x D x H), "
-                f"volume {o['volume'] * o['scale'] ** 3 * 1e6:.0f} cm3, mass {o['mass']:.2f} kg "
-                f"(uncalibrated scale: needs a reference object)")
+        return (f"{self.label(k)}: {ext[0]:.3f} x {ext[1]:.3f} x {ext[2]:.3f} scene units (W x D x H), "
+                f"hull volume {o['volume'] * o['scale'] ** 3:.6f} cubic scene units, mass {o['mass']:.2f} kg "
+                "(mass is estimated or user-entered; metric dimensions need a measured reference)")
 
     def t_push(self, obj, direction, speed=0.6, target=None):
         k = self.resolve(obj)
         d = self._dir(direction, k, target)
         self.w.push(k, d[:2], speed)
-        return f"pushed {self.label(k)} {direction}{' of ' + target if target else ''} at {speed:.1f} m/s"
+        return f"pushed {self.label(k)} {direction}{' of ' + target if target else ''} at {speed:.1f} scene units/s"
 
     def t_drop(self, obj, height=0.3):
         k = self.resolve(obj)
         self.w.drop(k, height)
-        return f"dropped {self.label(k)} from {height:.2f} m"
+        return f"dropped {self.label(k)} from {height:.2f} scene units (uncalibrated)"
 
     def t_throw(self, obj, speed=2.5):
         k = self.resolve(obj)
         self.w.throw(k, (0.1 * speed, 0.0, speed), spin=(3.0, 1.0, 0.0))
-        return f"threw {self.label(k)} up at {speed:.1f} m/s"
+        return f"threw {self.label(k)} up at {speed:.1f} scene units/s"
 
     def t_stack(self, obj, base):
         k, b = self.resolve(obj), self.resolve(base)
@@ -161,16 +166,19 @@ class Controller:
     def t_set_mass(self, obj, kg):
         k = self.resolve(obj)
         self.w.set_mass(k, kg)
+        self.obj(k)["property_source"] = "user-edited (other values may still be estimates)"
         return f"{self.label(k)} mass = {kg:.3g} kg"
 
     def t_set_friction(self, obj, mu):
         k = self.resolve(obj)
         self.w.set_friction(k, mu)
+        self.obj(k)["property_source"] = "user-edited (other values may still be estimates)"
         return f"{self.label(k)} friction = {mu:.2f}"
 
     def t_set_bounce(self, obj, e):
         k = self.resolve(obj)
         self.w.set_bounce(k, e)
+        self.obj(k)["property_source"] = "user-edited (other values may still be estimates)"
         return f"{self.label(k)} bounce = {e:.2f}"
 
     def t_set_gravity(self, g):
@@ -186,6 +194,7 @@ class Controller:
         new = np.clip(np.array(COLORS[color])[None] * shade[:, None], 0, 1).astype(np.float32)
         body = o["splat"]["means"][:, 2] > 0.02 * self.sc.radius * o["scale"]   # skip the attached table band
         o["splat"]["rgb"] = np.where(body[:, None], new, rgb0).astype(np.float32)
+        o["color"] = color
         self.on_appearance(k)
         return f"{self.label(k)} is now {color}"
 
@@ -193,11 +202,12 @@ class Controller:
         k = self.resolve(obj)
         o = self.obj(k)
         f = factor
+        if not np.isfinite(f) or not 0.05 <= o["scale"] * f <= 20:
+            return "error: total size multiplier must stay between 0.05 and 20"
+        if not 0.001 <= o["mass"] * f ** 3 <= 50:
+            return "error: scaled mass must stay between 0.001 and 50 kg; adjust mass first"
         o["splat"]["means"] = o["splat"]["means"] * f
         o["splat"]["scales"] = o["splat"]["scales"] * f
-        if o.get("refl") is not None:
-            o["refl"]["means"] = o["refl"]["means"] * f
-            o["refl"]["scales"] = o["refl"]["scales"] * f
         o["hull"] = o["hull"] * f
         o["scale"] *= f
         self.w.rescale(k, o["hull"], o["mass"] * f ** 3)
@@ -216,6 +226,7 @@ class Controller:
         if o["scale"] != 1.0:
             self.t_scale(str(k), 1.0 / o["scale"])
         o["splat"]["rgb"] = o["rgb0"].copy()
+        o["color"] = None
         self.w.set_removed(k, False)
         self.on_appearance(k)
         return f"restored {self.label(k)}"
@@ -227,14 +238,16 @@ class Controller:
             changed = o["scale"] != 1.0 or not np.array_equal(o["splat"]["rgb"], o["rgb0"])
             if o["scale"] != 1.0:
                 f = 1.0 / o["scale"]
-                for part in (o["splat"], o.get("refl")):
+                for part in (o["splat"],):
                     if part is not None:
                         part["means"] = part["means"] * f
                         part["scales"] = part["scales"] * f
                 o["hull"] = o["hull"] * f
                 o["scale"] = 1.0
             o["splat"]["rgb"] = o["rgb0"].copy()
+            o["color"] = None
             o.update(o["defaults"])
+            o["property_source"] = o["property_source0"]
             o["removed"] = False
             if changed:
                 self.on_appearance(k)
@@ -244,19 +257,30 @@ class Controller:
 
     def t_simulate(self, actions, seconds=2.0):
         """Run actions on a saved state, report, then restore. Deterministic."""
-        saved = (self.w.d.qpos.copy(), self.w.d.qvel.copy())
-        ids = [o["id"] for o in self.sc.objects if not o.get("removed")]
-        p0 = {k: self.w.pose(k)[0] for k in ids}
-        log = [self.run(c) for c in actions]
-        self.w.step(seconds)
-        rows = []
-        for k in ids:
-            moved = np.linalg.norm(self.w.pose(k)[0] - p0[k]) * 100
-            tilt = self._tilt(k)
-            state = ("fell off the table" if not self._on_table(k) else
-                     "tipped over" if tilt > 45 else "stayed upright")
-            if moved > 0.5 or tilt > 10:
-                rows.append(f"{self.label(k)}: moved {moved:.0f} cm, {state}")
-        self.w.d.qpos[:], self.w.d.qvel[:] = saved
-        self.w.forward()
-        return "prediction (" + "; ".join(log) + f") after {seconds:.0f}s: " + ("; ".join(rows) or "nothing moves")
+        import mujoco
+        err = validate({"name": "simulate", "args": {"actions": actions, "seconds": seconds}})
+        if err:
+            return f"error: {err}"
+        # A separate MjData isolates time, solver warm-start and applied forces as well as poses.
+        live = self.w.d
+        predicted = mujoco.MjData(self.w.m)
+        mujoco.mj_copyData(predicted, self.w.m, live)
+        self.w.d = predicted
+        try:
+            ids = [o["id"] for o in self.sc.objects if not o.get("removed")]
+            p0 = {k: self.w.pose(k)[0] for k in ids}
+            log = [self.run(c) for c in actions]
+            if any(s.startswith("error:") for s in log):
+                return "prediction cancelled: " + "; ".join(log)
+            self.w.step(seconds)
+            rows = []
+            for k in ids:
+                moved = np.linalg.norm(self.w.pose(k)[0] - p0[k])
+                tilt = self._tilt(k)
+                state = ("fell off the table" if not self._on_table(k) else
+                         "tipped over" if tilt > 45 else "stayed upright")
+                if moved > 0.005 or tilt > 10:
+                    rows.append(f"{self.label(k)}: moved {moved:.3f} scene units, {state}")
+            return "prediction (" + "; ".join(log) + f") after {seconds:.0f}s: " + ("; ".join(rows) or "nothing moves")
+        finally:
+            self.w.d = live
