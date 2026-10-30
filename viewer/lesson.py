@@ -246,10 +246,11 @@ class LessonPlayer:
     def __init__(self, ctx):
         self.ctx = ctx
         self.lesson, self.i, self.nodes, self.gen = None, 0, [], 0
+        self.autoplay = True
 
     # -- control --
     def start(self, lesson):
-        self.lesson, self.i = lesson, 0
+        self.lesson, self.i, self.autoplay = lesson, 0, True
         self.show()
 
     def step(self, delta):
@@ -257,6 +258,19 @@ class LessonPlayer:
             return
         self.i = int(np.clip(self.i + delta, 0, len(self.lesson["steps"]) - 1))
         self.show()
+
+    def _schedule(self, gen, seconds):
+        """Autoplay: after the step's narration (and one pass of its motions), go on by itself."""
+        def go():
+            time.sleep(seconds)
+            if self.gen != gen or not self.lesson or not self.autoplay:
+                return
+            if self.i < len(self.lesson["steps"]) - 1:
+                self.step(1)
+            elif self.lesson.get("outro"):
+                self.ctx["say"](self.lesson["outro"], f"outro{gen}")
+                self.ctx["notify"](self.lesson["outro"])
+        threading.Thread(target=go, daemon=True).start()
 
     def end(self):
         self.gen += 1
@@ -330,6 +344,9 @@ class LessonPlayer:
         self._frame(s["focus"] or [d.get("obj") for d in s["draw"] if d.get("obj") is not None])
         self._panel()
         c["say"](s["say"], f"lesson{self.gen}")
+        print(f"lesson step {self.i + 1}/{len(L['steps'])}: {s['say']} ({[d['type'] for d in s['draw']]})", flush=True)
+        moves = any(d["type"] == "move" for d in s["draw"])
+        self._schedule(gen, max(4.0, len(s["say"].split()) / 2.4 + 1.5) + (2.6 if moves else 0.0))
 
     def _ghost(self, d, line, gen, name):
         """Translucent copy of the object's splats moving along the path (loops while the step is shown)."""
@@ -392,5 +409,6 @@ class LessonPlayer:
             'background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;border-radius:10px;'
             'z-index:25;font-size:13px;line-height:1.45">'
             f'<b style="font-size:15px">{html.escape(L["title"])}</b>'
-            f'<p style="color:#ffb27a">Step {self.i + 1} of {len(L["steps"])}</p><ol style="padding-left:18px">{rows}</ol>'
+            f'<p style="color:#ffb27a">Step {self.i + 1} of {len(L["steps"])} · '
+            f'{"playing" if self.autoplay else "paused: press next"}</p><ol style="padding-left:18px">{rows}</ol>'
             f'{miss}<small>Drawings show what to do; the objects themselves are not moved.</small></aside>')
