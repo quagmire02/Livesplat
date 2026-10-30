@@ -1,5 +1,6 @@
 """3D model of one object for the user: real scan photos -> Hunyuan3D-2mv shape -> real-photo colours.
 
+  python -m viewer.model3d build <run> [<id> ...]       # all three steps (viewer must be closed: RAM)
   python -m viewer.model3d prep <run> <id> [<id> ...]   # pick front/left/back/right photos, SAM 3.1 cut-outs
   ~/venvs/hy3d/bin/python segment/hy3d_shape.py <run>/gen/model_<id> ...   # shape (separate venv, GPU)
   python -m viewer.model3d paint <run> <id> [<id> ...]  # align to the scan, colour from real photos -> model.glb
@@ -190,14 +191,34 @@ def paint(run, k, src="thrift_sfm"):
           flush=True)
 
 
+def build(run, ids, src="thrift_sfm"):
+    """prep -> Hunyuan shape (separate venv) -> paint, for every id. The viewer must be closed (8 GB RAM)."""
+    import os
+    import subprocess
+    import sys
+    if subprocess.run(["pgrep", "-f", "viewer.app"], capture_output=True).returncode == 0:
+        sys.exit("Close the viewer first: the shape model needs most of the 8 GB WSL RAM.")
+    dirs = [prep(run, k, src) for k in ids]
+    hy = Path(os.environ.get("HY3D_PY", Path.home() / "venvs" / "hy3d" / "bin" / "python"))
+    script = Path(__file__).resolve().parents[1] / "segment" / "hy3d_shape.py"
+    subprocess.run([str(hy), "-u", str(script), *map(str, dirs)], check=True,
+                   env={**os.environ, "HF_HUB_DISABLE_XET": "1"})
+    for k in ids:
+        paint(run, k, src)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("step", choices=["prep", "paint"])
+    ap.add_argument("step", choices=["prep", "paint", "build"])
     ap.add_argument("run_dir")
-    ap.add_argument("ids", type=int, nargs="+")
+    ap.add_argument("ids", type=int, nargs="*", help="object ids (default: all)")
     ap.add_argument("--src", default="thrift_sfm")
     a = ap.parse_args()
-    for k in a.ids:
+    ids = a.ids or [int(k) for k in json.loads((Path(a.run_dir) / "names.json").read_text())]
+    if a.step == "build":
+        build(a.run_dir, ids, a.src)
+        return
+    for k in ids:
         (prep if a.step == "prep" else paint)(a.run_dir, k, a.src)
 
 

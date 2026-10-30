@@ -277,7 +277,7 @@ def main():
                               f"the {head(ids_[1])}', 'what is this?', 'moon gravity', 'reset'")
     go = server.gui.add_button("send")
     sel_md = server.gui.add_markdown("")
-    chips = server.gui.add_button_group("this object", ["explain", "similar", "put back"], visible=False)
+    chips = server.gui.add_button_group("this object", ["explain", "similar", "3D model", "put back"], visible=False)
     more = server.gui.add_folder("More tools", expand_by_default=False)
     with more:
         # By task: Actions (quick buttons, settings), Object (details, AI identify, fix the scan), Scene, Robots.
@@ -335,6 +335,8 @@ def main():
                 start_explain(target, text)
             if "similar" in modes:
                 start_similar(target, beside="explain" in modes)
+            if "model" in modes:
+                show_model(target)
             return
         if show["k"] is not None or show["nodes"]:
             end_show()                                    # a new command closes the explanation/guide
@@ -603,6 +605,43 @@ def main():
                 log.content = f"Search failed: {e}"
         threading.Thread(target=work, daemon=True).start()
 
+    model_node = {"h": None, "k": None}
+
+    def hide_model():
+        if model_node["h"] is not None:
+            model_node["h"].remove()
+        model_node.update(h=None, k=None)
+
+    def show_model(k):
+        """Show the object's full 3D model (viewer.model3d) beside it and send the .glb as a download."""
+        from scipy.spatial.transform import Rotation
+        glb = Path(a.run_dir) / "gen" / f"model_{k}" / "model.glb"
+        if model_node["k"] == k:                          # second press hides it
+            hide_model()
+            log.content = "3D model hidden"
+            return
+        hide_model()
+        if not glb.exists():
+            log.content = (f"No 3D model of the {ctrl.label(k)} yet. Build it with the viewer closed: "
+                           f"python -m viewer.model3d build {a.run_dir} {k}")
+            return
+        o = ctrl.obj(k)
+        p, q = world.pose(k)
+        size = float(np.ptp(o["hull"][:, :2], 0).max())
+        fwd = cam["look"] - cam["pos"]
+        right = np.array([fwd[1], -fwd[0], 0.0])
+        right /= max(np.linalg.norm(right), 1e-9)
+        pos = p + right * 1.6 * size                       # beside the real object, same height on the table
+        # glb is y-up in the object's frame: +90 deg about x to z-up, then the object's current orientation.
+        rq = Rotation.from_quat([q[1], q[2], q[3], q[0]]) * Rotation.from_euler("x", 90, degrees=True)
+        x, y, z, w = rq.as_quat()
+        data = glb.read_bytes()
+        model_node.update(h=server.scene.add_glb(f"/model3d_{k}", data, position=tuple(pos), wxyz=(w, x, y, z)),
+                          k=k)
+        name = "_".join(ctrl.label(k).split())[:40] or f"object_{k}"
+        server.send_file_download(f"{name}.glb", data)
+        log.content = f"3D model of the {ctrl.label(k)} is next to it; the .glb file is downloading"
+
     guide_crops = {}
 
     def start_guide(task):
@@ -690,7 +729,10 @@ def main():
             start_explain(k, "what is this and how do I use it?")
         elif chips.value == "similar":
             start_similar(k)
+        elif chips.value == "3D model":
+            show_model(k)
         else:
+            hide_model()
             if show["k"] is not None:
                 end_show()
             else:

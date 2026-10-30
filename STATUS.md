@@ -13,7 +13,8 @@ Updated: Oct 30.
   - About 13 s per object, peak 3.1 GB GPU. The Cetaphil label is readable. Much better than TripoSR.
   - Gotchas: the stock loader builds fp32 on CPU (about 10 GB), which OOM-killed WSL, so the runner loads fp16 per part. transformers 4.48.3 + diffusers 0.32.2 are pinned in the hy3d venv. CPU offload needs `components`, `_exclude_from_cpu_offload` and `device=cuda` set by hand. `enable_flashvdm(replace_vae=False)`.
   - Don't run the viewer and Hunyuan at the same time (8 GB WSL RAM).
-  - Not yet in the viewer UI. Comparison images are in `.preview3d/compare.jpg` (git-ignored).
+  - Viewer: the "3D model" button (and phrases like "make a 3D model of this") shows `gen/model_<id>/model.glb` beside the object (viser add_glb) and sends it as a download. Pressing it again hides it; "put back" removes it. If the model is missing, it tells the user to run `python -m viewer.model3d build <run> <id>` with the viewer closed; build refuses while the viewer runs.
+  - Comparison images are in `.preview3d/compare.jpg` (git-ignored).
 - Dependencies: hy3d venv (torch 2.6 cu124, diffusers, transformers, accelerate, pymeshlab), separate from LiveSplat. Reason: user-facing 3D models from scans.
 
 ## Consumer refinement — Oct 30 (night)
