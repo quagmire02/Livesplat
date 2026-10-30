@@ -415,17 +415,28 @@ def main():
     explain_html = server.gui.add_html("")
     show = {"k": None, "pose": None, "paused": True, "gen": 0, "nodes": []}
 
+    # Speech runs in the browser (free Web Speech API). lsSay tries the nicest English voices first and falls back
+    # to the next one if a voice errors or does not start within 2.5 s (Edge's online "Natural" voices can fail
+    # silently), ending with the browser default. Defined once per page via an <img onerror> (add_html is unsanitized).
+    server.gui.add_html(
+        '<img alt="" style="display:none" src="x:def" onerror="window.lsN=0;window.lsSay=function(t){try{'
+        "var n=++window.lsN;var s=speechSynthesis;s.cancel();"
+        "var all=s.getVoices().filter(function(x){return /^en/i.test(x.lang)});"
+        "var pick=function(re){return all.filter(function(x){return re.test(x.name)})};"
+        "var list=pick(/natural|neural/i).concat(pick(/google/i),pick(/aria|jenny|samantha|zira|david/i),[null]);"
+        "var go=function(i){if(i>=list.length||n!==window.lsN)return;var u=new SpeechSynthesisUtterance(t);"
+        "u.volume=0.9;if(list[i])u.voice=list[i];var ok=false;u.onstart=function(){ok=true};"
+        "u.onerror=function(e){if(!ok&&n===window.lsN&&e.error!=='interrupted'&&e.error!=='canceled')go(i+1)};"
+        "setTimeout(function(){if(!ok&&n===window.lsN){s.cancel();go(i+1)}},2500);s.speak(u)};"
+        'go(0)}catch(e){console.warn(e)}}">')
+
     def say(text, n):
-        """Speak in the viewer's browser (free Web Speech API) and show it as a caption."""
+        """Speak in the viewer's browser and show it as a caption."""
         js = json.dumps(text).replace('"', "&quot;")
         toast_html.content = ""
         explain_html.content = explain_html.content.split("<!--say-->")[0] + (
-            f'<!--say--><img alt="" style="display:none" src="x:{n}" onerror="try{{var s=speechSynthesis;s.cancel();'
-            f'var u=new SpeechSynthesisUtterance({js});u.volume=0.9;u.rate=1.0;'
-            f'var v=s.getVoices().filter(function(x){{return /^en/i.test(x.lang)}});'
-            f'u.voice=v.find(function(x){{return /natural|neural|online/i.test(x.name)}})'
-            f'||v.find(function(x){{return /google/i.test(x.name)}})||v.find(function(x){{return /samantha|aria|jenny|zira/i.test(x.name)}})||v[0]||null;'
-            f's.speak(u)}}catch(e){{}}">')
+            f'<!--say--><img alt="" style="display:none" src="x:{n}" '
+            f'onerror="if(window.lsSay)window.lsSay({js})">')
         log.content = text
 
     def end_show(restore=True):
@@ -437,7 +448,7 @@ def main():
                 pass
         show["nodes"] = []
         explain_html.content = ('<img alt="" style="display:none" src="x:stop" '
-                                'onerror="try{speechSynthesis.cancel()}catch(e){}">')
+                                'onerror="try{window.lsN=(window.lsN||0)+1;speechSynthesis.cancel()}catch(e){}">')
         if cards.left != 12:
             cards.left = 12
             cards.render()
