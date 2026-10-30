@@ -123,6 +123,7 @@ viewer/       Viser app: per-object splat nodes, click/drag, command box
 eval/         accuracy table vs known objects
 spikes/       go/no-go scripts and paid checks
 sim/          real-to-sim export, render, robot checks (branch real-to-sim)
+lab/          lab bench tests (transport, grasp, gripper fit, camera) + reports
 docs/         plans (REAL_TO_SIM.md)
 tests/        unit tests + one small cached fixture scene
 ```

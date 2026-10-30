@@ -2,6 +2,18 @@
 
 Updated: Oct 30.
 
+## Robotics lab — Oct 30/31
+- Plan (user agreed: not only arms). A Lab bench with 4 tests, each over property ranges with a results card, a suggestion and an exportable report:
+  - transport (mobile robots/trays)
+  - gripper fit (jaws, suction)
+  - grasp (arm + gripper)
+  - camera (what a sensor sees)
+- Scale (`measure/scale.py`): currently Muse typical sizes, ±11% spread. Calibrate from one known size ("the can is 15 cm tall"); A4/ArUco and LiDAR later. Uncalibrated tests also run at ±spread.
+- Done:
+  - `lab/transport.py` + `lab/objects.py` (3D-model hulls with a flat base, checked to stand). 3 known-answer tests.
+  - table1 on wood: safe braking 1.75 m/s². The can tips first (0.22 g sideways); a rubber mat does not help, because tipping is the limit.
+- Next: grasp test, gripper fit, camera, viewer Lab tab, report export.
+
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.
 - 3D look ("3D look" button, or "use the 3d model look" / "back to the scanned look"): the Hunyuan model replaces the scan splats. A separate `/look<k>` node follows the physics pose every frame (`qmul(pose, Q_YUP_TO_ZUP)`, tested in `tests/test_look_quat.py`), so drag, push, drop and scale keep working. Recolouring only affects the scanned look.
