@@ -20,6 +20,8 @@ CASES = [
     ("how to get ready after a shower", False, ["guide"]),
     ("walk me through cleaning the table", False, ["guide"]),
     ("what can I make with these", False, ["guide"]),
+    ("what do I do with these", False, ["guide"]),
+    ("how do I play with these", False, ["guide"]),
     ("make a 3D model of this", True, ["model"]),
     ("download the model", True, ["model"]),
     ("can I get a 3d version of the lotion bottle", True, ["model"]),

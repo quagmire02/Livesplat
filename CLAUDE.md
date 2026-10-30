@@ -31,7 +31,11 @@ Submission: demo video + public repo. Deadline: **Nov 4, 9:00 PM ET** (Nov 5, 6:
 
 **Product focus (user decision):** The core product is for normal users: scan any tabletop, identify and tag the objects, move them freely (viewer + agent). Robot arms, sim export and grasp checks are an optional **Simulation mode** inside the product, not the product itself. Every new feature must keep the core flow simple.
 
-**Consumer side LOCKED (user decision, Oct 30):** Ask/Tell (explain, similar/possible matches, guide, 3D model, 3D look), scene clean-up and fix-the-scan are frozen at git tag `consumer-lock`. Only bug fixes from now on. New work goes to the **robotics lab** (the main focus): real-to-sim for university robot labs, grasp/part tests with results and suggestions.
+**Consumer side LOCKED (user decision, Oct 30):** Ask/Tell (explain, similar/possible matches, guide, 3D model, 3D look), scene clean-up and fix-the-scan are frozen at git tag `consumer-lock`. Only bug fixes from now on.
+
+**Lab LOCKED (user decision, Oct 31):** one saved result per test type is enough for the demo (transport, gripper fit, Panda grasp with advisor, camera). The Panda is the demo arm (data-sheet grip force). No more grasp work.
+
+**Current focus (user decision, Oct 31): visual lessons.** Guide is UNLOCKED and becomes a lesson player: Muse turns "how do I…" / "what can I do with these" into steps that draw on the live 3D scene (highlights, labels, arrows, motion paths, ghost motions, camera framing, narration, Back/Repeat/Next/Why). Example target: film a tennis racket and ball, ask what to do, get shown how to play. Depth over width: no new feature areas. Test once when a feature is done, not after every change (saves tokens).
 
 **Novelty:** none claimed. LiveSplat integrates known methods. Do not write "first" or "novel" in the README or the demo.
 

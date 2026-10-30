@@ -13,7 +13,7 @@ EXPLAIN = re.compile(r"\b(what('?s| is) (this|it|that)( thing)?|what am i lookin
                      r"how to use|how does (this|it) work|explain|show me how|tell me (about|more)|"
                      r"what does (this|it) do|what('?s| is) (this|it) for|identify)\b")
 GUIDE = re.compile(r"(how (do|can|would|should) (i|we|you)|how to|step by step|teach me|help me|walk me through|"
-                   r"what can i (make|do) with)\b")
+                   r"show me how|what (can|do|should) (i|we) (make|do|play) with|what (can|should) (i|we) do)\b")
 USE_IT = re.compile(r"how (do|can|should) (i|you) use|how to use")
 LOOK = re.compile(r"\b(use|switch to|show) (it |this |the )?(as )?(the |a )?(3d |three d )?(model|scan|scanned|original) "
                   r"(look|version|instead)\b|\b(3d|model) look\b|\bback to (the )?(scan|scanned|original)( look)?\b")

@@ -6,6 +6,11 @@ Updated: Oct 30.
 - Added docs/CONNECTED_PRODUCT_PLAN.md based on the user's updated overview and current implementation notes. Lab extends existing sensitivity/advisor work with targeted observations, evidence updates and reproducible retests. Guide gains how-to/what-to storyboards, anchored drawings and Muse Image illustrations using a shared player.
 - Scope is planning only; preserves existing consumer baseline and user modifications. Proposed spending caps are not authorization. No model calls, runtime edits, commits or pushes in this pass.
 
+## Visual lessons — Oct 31 (current focus; Lab locked, Guide unlocked)
+- `viewer/lesson.py` + player wiring in viewer.app: "how do I… / what can I do with these" -> Muse lesson (2-6 steps, fixed drawing vocabulary) -> drawn on the live scene (highlights, labels, curved arrows with heads, motion paths, translucent ghost copies moving along paths), camera framing, narration; back/repeat/next/why?/end.
+- Test (table1, headless plan): "get ready after a shower" -> 3 steps in 9 s (pat dry with the roll: path; lotion: arrow; deodorant: arrow + ghost move). All anchors resolve. Rendering not yet checked in the browser.
+- Next: user capture (e.g. tennis racket + ball) for the demo lesson; check drawings in the browser; tune sizes/colours.
+
 ## Robotics lab — Oct 30/31
 - Plan (user agreed: not only arms). A Lab bench with 4 tests, each over property ranges with a results card, a suggestion and an exportable report:
   - transport (mobile robots/trays)

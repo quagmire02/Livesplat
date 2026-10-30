@@ -288,6 +288,7 @@ def main():
                               f"the {head(ids_[1])}', 'what is this?', 'moon gravity', 'reset'")
     go = server.gui.add_button("send")
     sel_md = server.gui.add_markdown("")
+    lesson_btns = server.gui.add_button_group("lesson", ["back", "repeat", "next", "why?", "end"], visible=False)
     chips = server.gui.add_button_group("this object", ["explain", "similar", "3D model", "3D look", "put back"],
                                         visible=False)
     more = server.gui.add_folder("More tools", expand_by_default=False)
@@ -358,8 +359,9 @@ def main():
             return                                        # "the can is 15 cm tall" = a real size: calibrate
         modes = route(text, target is not None)
         if modes:
-            if "guide" in modes and len(modes) == 1:
-                start_guide(text)
+            if "guide" in modes:                          # a how-to is a lesson, even with something selected
+                start_lesson(text)
+                return
             if "explain" in modes:
                 start_explain(target, text)
             if "similar" in modes:
@@ -402,7 +404,7 @@ def main():
             if c["name"] == "plan_goal":
                 start_director(c["args"]["goal"])
             elif c["name"] == "guide":
-                start_guide(c["args"]["task"])
+                start_lesson(c["args"]["task"])
             elif c["name"] == "find_similar":
                 start_similar(ctrl.resolve(c["args"]["obj"]))
             else:
@@ -488,6 +490,9 @@ def main():
         explain_html.content = ('<img alt="" style="display:none" src="x:stop" '
                                 'onerror="try{window.lsN=(window.lsN||0)+1;speechSynthesis.cancel()}catch(e){}">')
         similar_html.content = ""
+        if lesson_player.lesson is not None:
+            lesson_player.end()
+            lesson_btns.visible = False
         if cards.left != 12:
             cards.left = 12
             cards.render()
@@ -716,6 +721,63 @@ def main():
         log.content = f"3D model of the {ctrl.label(k)} is next to it; the .glb file is downloading"
 
     guide_crops = {}
+
+    from viewer.lesson import LessonPlayer
+    lesson_player = LessonPlayer({
+        "server": server, "ctrl": ctrl, "world": world, "lock": lock, "cam": cam, "radius": r,
+        "mpu": __import__("measure.scale", fromlist=["load"]).load(a.run_dir).get("metres_per_unit") or 0.6,
+        "say": lambda t, n: say(t, n), "notify": lambda s: setattr(log, "content", s), "panel": explain_html,
+        "add_splat": lambda name, arr: add_splat(server, name, arr)})
+
+    def start_lesson(question):
+        """'How do I play with these?' -> a visual lesson drawn on the live scene (viewer.lesson)."""
+        from scene_io.thrift import load_cameras
+        from viewer.lesson import plan
+        from viewer.object_card import source_crops
+        if not allow_meta:
+            log.content = "Lessons need Muse (start the viewer with LIVESPLAT_ALLOW_META=1)."
+            return
+        end_show()
+        show["gen"] += 1
+        gen = show["gen"]
+        log.content = "Planning a lesson with your objects…"
+
+        def work():
+            try:
+                cams = load_cameras(Path(a.run_dir) / a.src)
+                crops = []
+                for o in sc.objects:
+                    k = o["id"]
+                    if o.get("removed"):
+                        continue
+                    if k not in guide_crops:
+                        cr = source_crops(body_world(sc, o), cams, count=1)
+                        guide_crops[k] = cr[0][1] if cr else None
+                    if guide_crops[k] is not None:
+                        crops.append((k, guide_crops[k]))
+                lesson = plan(question, ctrl, crops, cam["pos"], cam["look"], lesson_player.ctx["mpu"])
+                if gen != show["gen"]:
+                    return
+                lesson_player.start(lesson)
+                lesson_btns.visible = True
+                log.content = f"{lesson['title']}: step 1 of {len(lesson['steps'])} (use next / back / why?)"
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                log.content = f"Could not make a lesson: {e}"
+        threading.Thread(target=work, daemon=True).start()
+
+    @lesson_btns.on_click
+    def _(_):
+        v = lesson_btns.value
+        if v == "end":
+            lesson_player.end()
+            lesson_btns.visible = False
+        elif v == "why?":
+            threading.Thread(target=lesson_player.why, daemon=True).start()
+        else:
+            threading.Thread(target=lesson_player.step, args=({"back": -1, "repeat": 0, "next": 1}[v],),
+                             daemon=True).start()
 
     def start_guide(task):
         """'How do I make a sandwich?': steps that point at the objects on the table, one at a time."""

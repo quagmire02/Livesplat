@@ -32,7 +32,7 @@ class LabPanel:
         self.size = gui.add_text("known size", "", hint="e.g. 'can 15 cm tall' or 'bottle 7 cm wide': calibrates "
                                  "the whole scene. Without it, size-dependent results are tested at +-spread.")
         gui.add_button("calibrate").on_click(lambda _: self.calibrate(self.size.value))
-        self.arm = gui.add_dropdown("robot arm", list(ARMS), initial_value="SO-100")
+        self.arm = gui.add_dropdown("robot arm", list(ARMS), initial_value="Panda")   # demo arm (data-sheet grip)
         self.gripper = gui.add_dropdown("gripper", list(GRIPPERS), initial_value="SO-100 jaw")
         self.surface = gui.add_dropdown("carrier surface", list(SURFACES), hint="for the transport test")
         tests = gui.add_button_group("run test", ["grasp (arm)", "rerun grasp", "gripper fit", "transport"])
