@@ -277,7 +277,7 @@ def main():
                               f"the {head(ids_[1])}', 'what is this?', 'moon gravity', 'reset'")
     go = server.gui.add_button("send")
     sel_md = server.gui.add_markdown("")
-    chips = server.gui.add_button_group("this object", ["explain", "price", "put back"], visible=False)
+    chips = server.gui.add_button_group("this object", ["explain", "similar", "put back"], visible=False)
     more = server.gui.add_folder("More tools", expand_by_default=False)
     with more:
         # By task: Actions (quick buttons, settings), Object (details, AI identify, fix the scan), Scene, Robots.
@@ -324,14 +324,16 @@ def main():
         import re
         if not text.strip():
             return
-        q = text.lower().strip()
-        # Questions go straight to their mode (no routing call = faster): about the selected object -> explain,
-        # a how-to with the things on the table -> guide.
-        if ui["sel"] is not None and re.search(r"\b(what('?s| is) (this|it|that)|how (do|can|should) i use|how to use|"
-                                               r"explain|show me|tell me about|what does (this|it) do)\b", q):
+        # Questions go straight to their mode (no routing call = faster); everything else goes to the planner.
+        from viewer.route import route
+        mode = route(text, ui["sel"] is not None)
+        if mode == "similar":
+            start_similar(ui["sel"])
+            return
+        if mode == "explain":
             start_explain(ui["sel"], text)
             return
-        if re.match(r"(how (do|can|would|should) (i|we|you)|how to|step by step|teach me|help me)\b", q):
+        if mode == "guide":
             start_guide(text)
             return
         if show["k"] is not None or show["nodes"]:
@@ -353,7 +355,7 @@ def main():
             if any(c["name"] in ("push", "slide", "drop", "throw", "stack") for c in changes):
                 ui["paused"] = False
             sync_mode()
-        handoff = [(c, res) for c, res in results if c["name"] in ("plan_goal", "explain", "guide")
+        handoff = [(c, res) for c, res in results if c["name"] in ("plan_goal", "explain", "guide", "find_similar")
                    and not res.startswith("error:")]
         lines = [f"{text}"] + [f"• {res}" for c, res in results if (c, res) not in handoff]
         if note and not handoff:
@@ -368,6 +370,8 @@ def main():
                 start_director(c["args"]["goal"])
             elif c["name"] == "guide":
                 start_guide(c["args"]["task"])
+            elif c["name"] == "find_similar":
+                start_similar(ctrl.resolve(c["args"]["obj"]))
             else:
                 start_explain(ctrl.resolve(c["args"]["obj"]), c["args"].get("question", text))
 
@@ -546,6 +550,51 @@ def main():
                 log.content = f"Could not explain that: {e}"
         threading.Thread(target=work, daemon=True).start()
 
+    def start_similar(k):
+        """Same product (shop/info links + pictures) and similar products, from free web search."""
+        import html
+        from urllib.parse import quote_plus
+        from backends.search import similar
+        if not allow_meta:
+            log.content = "This needs Muse (start the viewer with LIVESPLAT_ALLOW_META=1)."
+            return
+        end_show()
+        show["gen"] += 1
+        gen = show["gen"]
+        c = known.get(k, {})
+        query = c.get("search_query") or ctrl.label(k)
+        log.content = f"Searching the web for {ctrl.label(k)}…"
+
+        def work():
+            try:
+                res = similar(ctrl.label(k), query, c.get("visible_text", "unknown"))
+                if gen != show["gen"]:
+                    return
+                esc = html.escape
+                pics = "".join(f'<a href="{esc(p["page"])}" target="_blank" rel="noopener"><img src="{esc(p["thumb"])}" '
+                               'style="width:80px;height:80px;object-fit:cover;border-radius:6px" loading="lazy"></a>'
+                               for p in res["pictures"])
+                same = "".join(f'<li><a style="color:#ff8c42" href="{esc(x["url"])}" target="_blank" rel="noopener">'
+                               f'{esc(x["title"])}</a></li>' for x in res["same"])
+                alts = "".join(f'<li><a style="color:#ff8c42" href="https://duckduckgo.com/?q={quote_plus(s["name"])}" '
+                               f'target="_blank" rel="noopener">{esc(s["name"])}</a> <small>{esc(s["why"])}</small></li>'
+                               for s in res["similar"])
+                explain_html.content = (
+                    '<aside style="position:fixed;left:12px;top:60px;width:300px;max-height:80vh;overflow:auto;'
+                    'background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;border-radius:10px;'
+                    'z-index:25;font-size:13px;line-height:1.45">'
+                    f'<b style="font-size:15px">{esc(ctrl.label(k).capitalize())}</b><p>{esc(res["summary"])}</p>'
+                    f'<div style="display:flex;flex-wrap:wrap;gap:6px">{pics}</div>'
+                    + (f'<p><b>This product</b></p><ul style="padding-left:18px">{same}</ul>' if same else "")
+                    + (f'<p><b>Similar</b></p><ul style="padding-left:18px">{alts}</ul>' if alts else "")
+                    + f'<small>Web search for "{esc(query)}". Links open in a new tab.</small></aside>')
+                log.content = f"Found {len(res['same'])} links and {len(res['pictures'])} pictures"
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                log.content = f"Search failed: {e}"
+        threading.Thread(target=work, daemon=True).start()
+
     guide_crops = {}
 
     def start_guide(task):
@@ -631,8 +680,8 @@ def main():
             return
         if chips.value == "explain":
             start_explain(k, "what is this and how do I use it?")
-        elif chips.value == "price":
-            cards.start_market(k)
+        elif chips.value == "similar":
+            start_similar(k)
         else:
             if show["k"] is not None:
                 end_show()

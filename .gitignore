@@ -6,3 +6,4 @@ runs/
 *.ply
 !tests/fixtures/*.ply
 .env
+.preview3d/

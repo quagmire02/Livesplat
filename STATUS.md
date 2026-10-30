@@ -2,6 +2,17 @@
 
 Updated: Oct 30.
 
+## Consumer refinement — Oct 30 (night)
+- User plan: refine and lock the consumer side (Ask/Tell, explain, scene clean-up, fix the scan), then move to the robotics lab (the main dark horse).
+- Ask/Tell:
+  - The "price" button is replaced by "similar": the same product's links, 8 pictures and similar products (DuckDuckGo text + images, Muse minimal), about 9 s.
+  - Routing moved to `viewer/route.py` with 21 test phrasings.
+  - Muse tool `find_similar` added.
+- 3D model check: the TripoSR single-image meshes (`gen/obj_k.obj`) were viewed. The bottle is lumpy, the can bent, the roll failed. Not good enough for a user feature.
+  - Proposal: Hunyuan3D-2mv (multi-view shape from real scan photos) plus texture projected from the real photos. Waiting on the user's OK to download the weights.
+- iPhone LiDAR: MapAnything accepts depth and poses, so a Stray Scanner / Record3D importer would give metric scale. Needs a LiDAR iPhone/iPad to test.
+- `muse-wonder-1.0` is on our API: Meta's frontier text/reasoning model (video input, $4/$20 per 1M tokens). It is not 3D.
+
 ## Explain fixes + Guide mode — Oct 30 (evening)
 - Muse `reasoning_effort` works on the Meta API: default 6.8 s, low 4.0 s, minimal 1.4 s (`client.spark_chat(extra=...)`). Planner and Explain/Guide use low.
 - Explain:

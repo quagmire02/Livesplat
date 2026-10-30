@@ -272,6 +272,9 @@ class Controller:
     def t_plan_goal(self, goal):
         return f"planning: {goal}"          # the viewer runs agent.director for this call
 
+    def t_find_similar(self, obj):
+        return f"searching for {self.label(self.resolve(obj))}"   # the viewer runs backends.search.similar
+
     def t_guide(self, task):
         return f"guide: {task}"             # the viewer runs viewer.explain.guide for this call
 

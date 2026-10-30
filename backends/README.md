@@ -10,5 +10,5 @@ The user's $150 hackathon credits are not permission to call models or to raise 
 Status: Total spend $0.0511.
 
 - [CHANGE_NOTES.md](CHANGE_NOTES.md) — Short implementation summary and remaining gaps (Oct 29).
-- search.py — free product search: SearXNG or DuckDuckGo (ddgs) results → Muse listings/price range/competitors, links and prices checked against the results; cached.
+- search.py — free web + image search (DuckDuckGo via ddgs, or SearXNG). similar(): same-product links, pictures and similar products (Muse minimal picks from real results). market(): older price-listing variant. Free product search: SearXNG or DuckDuckGo (ddgs) results → Muse listings/price range/competitors, links and prices checked against the results; cached.
 - baseten.py — Muse Spark Open (meta-models/muse-spark-open-1026) on Baseten credit; OpenAI-compatible; cache + budget guard; needs BASETEN_API_KEY and LIVESPLAT_ALLOW_BASETEN=1.
