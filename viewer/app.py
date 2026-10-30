@@ -636,8 +636,14 @@ def main():
         rq = Rotation.from_quat([q[1], q[2], q[3], q[0]]) * Rotation.from_euler("x", 90, degrees=True)
         x, y, z, w = rq.as_quat()
         data = glb.read_bytes()
-        model_node.update(h=server.scene.add_glb(f"/model3d_{k}", data, position=tuple(pos), wxyz=(w, x, y, z)),
-                          k=k)
+        # The model hangs under its own move/rotate handles (like the scanned objects), at the object's mid-height.
+        h = float(o["hull"][:, 2].max())
+        qo = Rotation.from_quat([q[1], q[2], q[3], q[0]])
+        mid = qo.apply([0.0, 0.0, 0.5 * h])
+        handle = server.scene.add_transform_controls(f"/model3d_{k}", scale=max(0.3 * r, 0.08),
+                                                     position=tuple(pos + mid), wxyz=(w, x, y, z))
+        server.scene.add_glb(f"/model3d_{k}/mesh", data, position=(0.0, -0.5 * h, 0.0))   # glb is y-up: base below
+        model_node.update(h=handle, k=k)
         name = "_".join(ctrl.label(k).split())[:40] or f"object_{k}"
         server.send_file_download(f"{name}.glb", data)
         log.content = f"3D model of the {ctrl.label(k)} is next to it; the .glb file is downloading"
