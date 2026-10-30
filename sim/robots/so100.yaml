@@ -16,6 +16,8 @@ gripper:
   open: 1.0                                 # pad gap 7.9 cm (the jaw swings on an arc)
   closed: -0.174
   max_opening_m: 0.06
+  force_n: 12                               # ESTIMATE (STS3215 servo over the jaw lever, sustained): measure yours
+  force_scale: 0.1404                       # sim.grip_calibrate: model 35 N/finger -> 12.0 N
   palm_clearance_m: 0.03
 base_gap_m: -0.08                          # clamped on the table top, 8 cm inside the edge (as SO-100s are used)
 side_min_height_m: 0.012                    # small jaw: can grasp low objects from the side

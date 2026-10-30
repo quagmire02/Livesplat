@@ -36,6 +36,8 @@ class RobotSpec:
     side_min_height: float = 0.045
     approach_tol: float = 5.0
     grip_kp: float = 0.0                # >0: override the gripper position-actuator stiffness (weak model defaults)
+    force_n: float = 0.0                # real gripper force per finger (data sheet / measured), for calibration
+    force_scale: float = 1.0            # gripper actuator scale so the model squeezes force_n (sim.grip_calibrate)
 
     @classmethod
     def load(cls, name_or_path):
@@ -53,7 +55,8 @@ class RobotSpec:
                    grip_closed=float(g["closed"]), max_opening=float(g["max_opening_m"]),
                    palm_clearance=float(g.get("palm_clearance_m", 0.03)), base_gap=float(y.get("base_gap_m", 0.1)),
                    side_min_height=float(y.get("side_min_height_m", 0.045)),
-                   approach_tol=float(y.get("approach_tolerance_deg", 5.0)), grip_kp=float(g.get("kp", 0.0)))
+                   approach_tol=float(y.get("approach_tolerance_deg", 5.0)), grip_kp=float(g.get("kp", 0.0)),
+                   force_n=float(g.get("force_n", 0.0)), force_scale=float(g.get("force_scale", 1.0)))
 
     # derived limits
     @property

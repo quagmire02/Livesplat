@@ -27,10 +27,31 @@ class Arm:
         if spec.grip_kp > 0:                                    # position actuator: force = kp * (ctrl - q)
             m.actuator_gainprm[self.grip, 0] = spec.grip_kp
             m.actuator_biasprm[self.grip, 1] = -spec.grip_kp
+        self._gain0 = m.actuator_gainprm[self.grip].copy()
+        self._bias0 = m.actuator_biasprm[self.grip].copy()
+        self._frange0 = m.actuator_forcerange[self.grip].copy()
+        self.set_force_scale(spec.force_scale)
+        # Robot joints whose zero lies outside their range (Trossen fingers: 15-37 mm) must start inside it,
+        # or the fingers start interpenetrating and jam.
+        self.limited = [(m.jnt_qposadr[j], *m.jnt_range[j]) for j in range(m.njnt)
+                        if m.jnt_limited[j] and m.joint(j).name.startswith(spec.prefix)
+                        and int(m.jnt_type[j]) in (int(mujoco.mjtJoint.mjJNT_HINGE), int(mujoco.mjtJoint.mjJNT_SLIDE))]
+
+    def set_force_scale(self, s):
+        """Scale the gripper actuator's strength (gain, stiffness, damping) keeping its open/closed positions."""
+        m = self.m
+        m.actuator_gainprm[self.grip] = self._gain0
+        m.actuator_biasprm[self.grip] = self._bias0
+        m.actuator_gainprm[self.grip, 0] = self._gain0[0] * s
+        m.actuator_biasprm[self.grip, 1:3] = self._bias0[1:3] * s
+        if m.actuator_forcelimited[self.grip]:
+            m.actuator_forcerange[self.grip] = self._frange0 * s
 
     def reset(self):
         d = mujoco.MjData(self.m)
         mujoco.mj_resetData(self.m, d)
+        for adr, lo, hi in self.limited:
+            d.qpos[adr] = np.clip(d.qpos[adr], lo, hi)
         d.qpos[self.qadr] = self.spec.home
         d.ctrl[self.arm] = self.spec.home
         d.ctrl[self.grip] = self.spec.grip_open
@@ -96,7 +117,7 @@ def try_side(arm, body, row, upm, frames=None):
     arm.drive(d, spec.home, spec.grip_open, 0.3, frames)
     dirs = side_dirs(s["approach_xy"])
     tcp = np.array(s["tcp"])
-    q_pre, *_ = arm.solve(tcp - 0.12 * upm * dirs[0], dirs, spec.home)
+    q_pre, *_ = arm.solve(tcp - s.get("backoff_m", 0.12) * upm * dirs[0], dirs, spec.home)
     q_at, err_at, _ = arm.solve(tcp, dirs, q_pre)
     q_lift, *_ = arm.solve(tcp + np.array([0, 0, 0.10 * upm]), dirs, q_at)
     arm.drive(d, q_pre, spec.grip_open, 1.5, frames)

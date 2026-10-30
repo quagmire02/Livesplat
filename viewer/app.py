@@ -325,6 +325,16 @@ def main():
     with sim_tab:
         from viewer.lab_panel import LabPanel
         lab = LabPanel(server, sc, a.run_dir, a.src, ctrl, lambda s: setattr(log, "content", s), lab_html)
+
+        def lab_place(k, pos, wxyz):
+            """Lab replay moves the real scanned object with the simulated arm (physics paused)."""
+            with lock:
+                if pos is None:
+                    world.place(k, world.rest[k][:3], world.rest[k][3:])
+                    return
+                ui["paused"] = True
+                world.place(k, np.asarray(pos), np.asarray(wxyz))
+        lab.place = lab_place
         server.gui.add_markdown("**Watch an arm** on this table (robot placement, grasps):")
         mode_btn = server.gui.add_button("start simulation mode", visible=bool(sim_dir))
         if not sim_dir:

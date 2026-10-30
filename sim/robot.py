@@ -159,14 +159,21 @@ def top_plan(hull_pts, quat_wxyz, depth):
     return best
 
 
-def side_plan(spec, hull_pts, pos, quat_wxyz, approach, upm):
-    """Best side grasp: height, width across the jaws, TCP point. None if nothing fits."""
+GRIP_BANDS = {}                # body -> (lo, hi) height fractions for side grasps (set by lab.advisor: Muse's choice)
+
+
+def side_plan(spec, hull_pts, pos, quat_wxyz, approach, upm, band=None):
+    """Best side grasp: height, width across the jaws, TCP point. None if nothing fits.
+    band: (lo, hi) fractions of the object height to grip within (default: anywhere, aiming at 40%)."""
     mesh = _posed_mesh(hull_pts, quat_wxyz)
     H = mesh.bounds[1, 2]
     a = np.array(approach[:2]) / np.linalg.norm(approach[:2])
     perp = np.array([-a[1], a[0]])
     best = None
-    for h in np.arange(max(spec.side_min_height * upm, 0.15 * H), H - 0.01 * upm, 0.01 * upm):
+    lo, hi = (max(spec.side_min_height * upm, 0.15 * H), H - 0.01 * upm) if band is None else \
+        (max(spec.side_min_height * upm, band[0] * H), min(H - 0.01 * upm, band[1] * H))
+    aim = 0.4 * H if band is None else (band[0] + band[1]) / 2 * H
+    for h in np.arange(lo, hi + 1e-9, 0.01 * upm):
         sec = mesh.section(plane_origin=[0, 0, h], plane_normal=[0, 0, 1])
         if sec is None or len(sec.vertices) < 3:
             continue
@@ -177,7 +184,7 @@ def side_plan(spec, hull_pts, pos, quat_wxyz, approach, upm):
             continue
         along = min((pa.min() + pa.max()) / 2, pa.min() + spec.side_max_in * upm)
         ctr = a * along + perp * (pp.min() + pp.max()) / 2
-        score = abs(h - 0.4 * H)
+        score = abs(h - aim)
         if best is None or score < best["score"]:
             best = {"score": score, "height": float(h), "width": float(width),
                     "tcp": [pos[0] + ctr[0], pos[1] + ctr[1], pos[2] + h], "approach": a.tolist()}
@@ -232,12 +239,14 @@ def reach_report(m, spec, meta, hulls, upm):
         for dang in np.radians([0, -20, 20, -40, 40, -60, 60]):
             c_, s_ = np.cos(dang), np.sin(dang)
             side = side_plan(spec, hulls[o["body"]], pos, quat,
-                             [c_ * base_dir[0] - s_ * base_dir[1], s_ * base_dir[0] + c_ * base_dir[1]], upm)
+                             [c_ * base_dir[0] - s_ * base_dir[1], s_ * base_dir[0] + c_ * base_dir[1]], upm,
+                             band=GRIP_BANDS.get(o["body"]))
             if not side:
                 continue
             aw, cw = side_dirs(side["approach"])
             d.qpos[qadr] = spec.home
-            e_p, a_p = ik_multi(m, d, spec, np.array(side["tcp"]) - 0.12 * upm * aw, aw, cw)
+            back = 0.08 * upm + 0.6 * max(o["size_xyz"][:2])        # pre-grasp clear of big objects too
+            e_p, a_p = ik_multi(m, d, spec, np.array(side["tcp"]) - back * aw, aw, cw)
             q_pre = d.qpos[qadr].copy()
             e_s, a_s = ik_multi(m, d, spec, np.array(side["tcp"]), aw, cw)
             q_at = d.qpos[qadr].copy()
@@ -247,7 +256,7 @@ def reach_report(m, spec, meta, hulls, upm):
             cand = {"feasible": bool(ok_ik and not hits), "height_m": round(side["height"] / upm, 4),
                     "width_m": round(side["width"] / upm, 4), "tcp": np.round(side["tcp"], 5).tolist(),
                     "approach_xy": np.round(side["approach"], 4).tolist(),
-                    "approach_offset_deg": round(float(np.degrees(dang))),
+                    "approach_offset_deg": round(float(np.degrees(dang))), "backoff_m": round(back / upm, 4),
                     "ik_pos_error_m": round(e_s / upm, 4), "ik_angle_error_deg": round(a_s, 1), "blocked_by": hits}
             blocked_by |= set(hits)
             if cand["feasible"] and (not side_row["feasible"] or cand["width_m"] < side_row["width_m"]):

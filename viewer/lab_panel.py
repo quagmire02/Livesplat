@@ -13,8 +13,7 @@ import sys
 import threading
 from pathlib import Path
 
-ARMS = {"SO-100": "so100", "Panda": "panda", "xArm7": "xarm7",
-        "ViperX 300 S (unverified)": "vx300s", "WidowX 250 S (unverified)": "wx250s"}   # Trossen specs: check vs sim.synthetic
+ARMS = {"SO-100": "so100", "Panda": "panda", "xArm7": "xarm7", "ViperX 300 S": "vx300s", "WidowX 250 S": "wx250s"}
 GRIPPERS = {"SO-100 jaw": "so100_jaw", "Panda hand": "panda_hand", "Robotiq 2F-85": "robotiq_2f85",
             "Suction cup 30 mm": "suction_30mm"}
 SURFACES = {"wood": "wood", "plastic tray": "plastic", "rubber mat": "rubber"}
@@ -36,7 +35,7 @@ class LabPanel:
         self.arm = gui.add_dropdown("robot arm", list(ARMS), initial_value="SO-100")
         self.gripper = gui.add_dropdown("gripper", list(GRIPPERS), initial_value="SO-100 jaw")
         self.surface = gui.add_dropdown("carrier surface", list(SURFACES), hint="for the transport test")
-        tests = gui.add_button_group("run test", ["grasp (arm)", "gripper fit", "transport"])
+        tests = gui.add_button_group("run test", ["grasp (arm)", "rerun grasp", "gripper fit", "transport"])
         tests.on_click(lambda _: self.start(tests.value))
         from lab.camera import CAMERAS, load_camera
         self.cams = {load_camera(p.stem)["name"]: p.stem for p in sorted(CAMERAS.glob("*.yaml"))}
@@ -45,7 +44,12 @@ class LabPanel:
         cam_btn.on_click(lambda _: self.start_camera(cam_btn.value))
         self.cam_view = None                                # (cam spec, c2w) of the last camera test
         self.status = gui.add_markdown("")
+        self.watch_obj = gui.add_dropdown("watch object", [self.ctrl.label(k) for k in self.ctrl.names])
+        watch = gui.add_button_group("watch the arm", ["a success", "a failure"])
+        watch.on_click(lambda _: self.start_replay(watch.value == "a success"))
         gui.add_button("download report").on_click(lambda _: self.download())
+        self.place = None                                   # set by viewer.app: place(k, pos, wxyz) under the lock
+        self.robot_nodes = None
         self.refresh_scale()
 
     # ---- scale -------------------------------------------------------------------------------
@@ -103,9 +107,14 @@ class LabPanel:
                 else:
                     robot = ARMS[self.arm.value]
                     cached = self.run / "lab" / f"grasp_{robot}.json"
+                    if kind == "grasp (arm)" and cached.exists():         # saved result: show at once
+                        from lab.grasp import summary
+                        self.show("grasp", json.loads(cached.read_text()), summary(json.loads(cached.read_text())))
+                        self.status.content = "Saved result shown. 'rerun grasp' runs it again (a few minutes)."
+                        return
                     self.status.content = (f"Running the {self.arm.value} grasp test in the background "
                                            "(exports metric scenes, many trials; a few minutes)…")
-                    p = subprocess.run([sys.executable, "-m", "lab.grasp", str(self.run), "--robot", robot],
+                    p = subprocess.run([sys.executable, "-m", "lab.grasp", str(self.run), "--robot", robot, "--advise"],
                                        capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]))
                     if p.returncode != 0 or not cached.exists():
                         raise RuntimeError((p.stderr or p.stdout)[-300:])
@@ -121,6 +130,89 @@ class LabPanel:
             finally:
                 self.busy.release()
         threading.Thread(target=work, daemon=True).start()
+
+    # ---- replay: watch one recorded grasp trial in the live scan -----------------------------
+    def start_replay(self, success):
+        if not self.busy.acquire(blocking=False):
+            self.notify("A lab test is already running.")
+            return
+
+        def work():
+            try:
+                self._replay(success)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.status.content = f"Replay failed: {html.escape(str(e))[:300]}"
+            finally:
+                self.busy.release()
+        threading.Thread(target=work, daemon=True).start()
+
+    def _replay(self, success):
+        import time
+        import mujoco
+        from lab.grasp import setup, trial
+        from sim.view import robot_meshes
+        robot = ARMS[self.arm.value]
+        p = self.run / "lab" / f"grasp_{robot}.json"
+        if not p.exists():
+            self.notify(f"Run the {self.arm.value} grasp test first.")
+            return
+        res = json.loads(p.read_text())
+        k = next(k for k in self.ctrl.names if self.ctrl.label(k) == self.watch_obj.value)
+        body = f"obj_{k}"
+        rec = res["objects"].get(body)
+        if rec is None:
+            self.notify("This object was not in the test.")
+            return
+        pick = None
+        for mode, md in sorted(rec["modes"].items(), key=lambda kv: -kv[1]["rate"] if success else kv[1]["rate"]):
+            c = next((c for c in md.get("cases", []) if c["ok"] == success and c["scale_f"] == 1.0), None)
+            if c:
+                pick = (mode, c)
+                break
+        if pick is None:
+            self.notify(f"No {'successful' if success else 'failed'} trial for the {self.watch_obj.value}.")
+            return
+        mode, c = pick
+        self.status.content = f"Simulating one {mode} grasp (mass x{c['mass_f']}, friction x{c['fric_f']})…"
+        sim = Path(res["nominal_package"])
+        spec, meta, rows, arm, _ = setup(sim, robot, (tuple(res["base"]["pos_m"]), np.radians(res["base"]["yaw_deg"])))
+        row = next(r for r in rows if r["body"] == body)
+        o = next(x for x in meta["objects"] if x["body"] == body)
+        frames = []
+        r = trial(arm, row, o, mode, c["mass_f"], c["fric_f"], res["pad_friction"], frames=frames)
+        from measure.scale import load
+        upm = 1.0 / (load(self.run).get("metres_per_unit") or 0.6)          # metres -> scene units
+        m, d = arm.m, mujoco.MjData(arm.m)
+        if self.robot_nodes is not None:
+            self.robot_nodes[0].remove()
+        root = self.server.scene.add_frame("/lab/robot", show_axes=False)
+        links = {}
+        for bid, parts in robot_meshes(m, spec.prefix).items():
+            fr = self.server.scene.add_frame(f"/lab/robot/{m.body(bid).name}", show_axes=False)
+            for j, (v, f, rgb) in enumerate(parts):
+                self.server.scene.add_mesh_simple(f"/lab/robot/{m.body(bid).name}/g{j}", vertices=v * upm, faces=f,
+                                                  color=tuple(int(255 * x) for x in rgb), flat_shading=False)
+            links[bid] = fr
+        self.robot_nodes = (root, links)
+        what = "lifts it" if r["success"] else f"fails ({r.get('reason') or 'slips'})"
+        self.notify(f"{spec.name}, {mode} grasp on the {self.watch_obj.value}: {what}")
+        self.status.content = (f"Replaying: {mode} grasp, mass x{c['mass_f']}, friction x{c['fric_f']} -> "
+                               f"{'success' if r['success'] else 'failure'}")
+        ob = m.body(body).id
+        for q in frames:
+            d.qpos[:] = q
+            mujoco.mj_kinematics(m, d)
+            with self.server.atomic():
+                for bid, node in links.items():
+                    node.position, node.wxyz = tuple(d.xpos[bid] * upm), tuple(d.xquat[bid])
+            if self.place:
+                self.place(k, d.xpos[ob] * upm, d.xquat[ob])
+            time.sleep(0.05)
+        time.sleep(1.5)
+        if self.place:
+            self.place(k, None, None)                           # put the object back
 
     # ---- camera ------------------------------------------------------------------------------
     def _client(self):
@@ -255,10 +347,18 @@ class LabPanel:
     def show(self, kind, res, text):
         self.last = (kind, res, text)
         lines = text.split("\n")
-        rows = "".join(f"<li>{html.escape(x[2:])}</li>" for x in lines[1:] if x.startswith("- "))
+        rows = ""
+        for x in lines[1:]:                                 # "- object" rows, "  · detail" lines under them
+            if x.startswith("- "):
+                rows += f"<li style='margin-top:6px'>{html.escape(x[2:])}</li>"
+            elif x.strip().startswith("·"):
+                t = x.strip()[1:].strip()
+                key, _, rest = t.partition(":")
+                rows += (f"<div style='margin-left:6px;color:#bcd;font-size:12px'><b>{html.escape(key)}:</b>"
+                         f"{html.escape(rest)}</div>")
         tips = "".join(f"<p style='color:#ffb27a'>{html.escape(x)}</p>" for x in lines[1:] if x.startswith("Suggestion"))
         self.html.content = (
-            '<aside style="position:fixed;left:12px;top:60px;width:340px;max-height:80vh;overflow:auto;'
+            '<aside style="position:fixed;left:12px;top:60px;width:380px;max-height:80vh;overflow:auto;'
             'background:rgba(30,30,30,.95);color:#eee;padding:14px;border:1px solid #4aa3ff;border-radius:10px;'
             'z-index:27;font-size:13px;line-height:1.45">'
             f'<b style="font-size:15px;color:#7cc0ff">Lab · {html.escape(kind)}</b>'

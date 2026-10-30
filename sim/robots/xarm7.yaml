@@ -16,6 +16,8 @@ gripper:
   open: 0
   closed: 255
   max_opening_m: 0.085                      # spec sheet stroke 86 mm (probe: 98 mm geom-centre gap)
+  force_n: 30                               # ESTIMATE for the xArm Gripper: check the data sheet / measure
+  force_scale: 0.1216                       # sim.grip_calibrate: model 402 N/finger -> 33.6 N
   palm_clearance_m: 0.04
 base_gap_m: 0.10
 side_min_height_m: 0.045

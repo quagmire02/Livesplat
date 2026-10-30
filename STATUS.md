@@ -27,7 +27,13 @@ Updated: Oct 30.
   - xArm7: bottle top 100%, can 100%, roll top 33%.
   - SO-100: blocked or out of reach on this layout.
   - ViperX/WidowX: ~0% on everything. The Menagerie gripper kp is 200 N/m (~1 N grip), so `gripper.kp` 1500 was added to the robot yaml, but they still fail. The auto-drafted spec (TCP/open-close) is suspect, so they are marked "(unverified)" in the Lab tab.
-- Next: validate vx300s/wx250s with sim.synthetic (known answers); Muse-chosen grip points; click through the Lab tab in the browser.
+- Fixed (Oct 31):
+  - Trossen arms: robot joints are clamped into their ranges on reset. The WidowX fingers started at q=0, outside the 15-37 mm range, and jammed. All arms now pass the synthetic cube.
+  - Side pre-grasp back-off now scales with object size (it was colliding with big objects).
+  - Grip-force calibration (`sim/grip_calibrate.py`): stock squeeze was 1.3 N/finger for the Panda (real 70 N) and 402 N for the xArm7. All arms are now calibrated to force_n; the Panda value is from the data sheet, the others are estimates.
+- Added: `lab/advisor.py` (what decides it, Muse grip vs planner, Muse-proposed changes simulated); Lab card shows these lines; "watch the arm" replays a success or failure in the live scan.
+- First advisor run (Panda, uncalibrated grip): the uninformed Muse grip was worse than the planner (can 22% vs 100%). Given the planner's facts it matched (89%, 100%). Pads on the bottle: 0 -> 11%.
+- Next: the calibrated 5-arm sweep with the advisor (running); click through the Lab tab.
 
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.
