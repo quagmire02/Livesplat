@@ -149,6 +149,17 @@ class Scene:
         return float(e[np.argmax(h)] + (e[1] - e[0]) / 2)
 
 
+Q_YUP_TO_ZUP = np.array([np.sqrt(0.5), np.sqrt(0.5), 0.0, 0.0])    # wxyz, +90 deg about x (glb y-up -> z-up)
+
+
+def qmul(a, b):
+    """Hamilton product of wxyz quaternions (a then b in the local frame)."""
+    w1, x1, y1, z1 = a
+    w2, x2, y2, z2 = b
+    return np.array([w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2, w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+                     w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2, w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2])
+
+
 def body_world(sc, o):
     """World-frame capture positions of the object's MOVABLE splats, in o["splat"] order (contact splats excluded),
     so indices from projections match o["splat"] and the repair layer."""
@@ -277,7 +288,8 @@ def main():
                               f"the {head(ids_[1])}', 'what is this?', 'moon gravity', 'reset'")
     go = server.gui.add_button("send")
     sel_md = server.gui.add_markdown("")
-    chips = server.gui.add_button_group("this object", ["explain", "similar", "3D model", "put back"], visible=False)
+    chips = server.gui.add_button_group("this object", ["explain", "similar", "3D model", "3D look", "put back"],
+                                        visible=False)
     more = server.gui.add_folder("More tools", expand_by_default=False)
     with more:
         # By task: Actions (quick buttons, settings), Object (details, AI identify, fix the scan), Scene, Robots.
@@ -337,6 +349,8 @@ def main():
                 start_similar(target, beside="explain" in modes)
             if "model" in modes:
                 show_model(target)
+            if "look" in modes:
+                set_look(target, on=not re.search(r"\b(scan|scanned|original|splat)\b", text.lower()))
             return
         if show["k"] is not None or show["nodes"]:
             end_show()                                    # a new command closes the explanation/guide
@@ -606,6 +620,42 @@ def main():
         threading.Thread(target=work, daemon=True).start()
 
     model_node = {"h": None, "k": None}
+    looks, glb_cache = {}, {}
+
+    def model_glb(k):
+        p = Path(a.run_dir) / "gen" / f"model_{k}" / "model.glb"
+        if k not in glb_cache and p.exists():
+            glb_cache[k] = p.read_bytes()
+        return glb_cache.get(k)
+
+    def make_look(k):
+        """(Re)create the model node for object k; the frame loop moves it with the object's physics pose."""
+        if k in looks:
+            looks[k].remove()
+        looks[k] = server.scene.add_glb(f"/look{k}", model_glb(k), scale=float(ctrl.obj(k)["scale"]))
+
+    def set_look(k, on=None):
+        """Toggle the 3D-model look for object k (physics, dragging and commands keep working)."""
+        on = (k not in looks) if on is None else on
+        if not on:
+            if k in looks:
+                looks.pop(k).remove()
+            log.content = f"{ctrl.label(k)}: back to the scanned look"
+            return
+        if model_glb(k) is None:
+            log.content = (f"No 3D model of the {ctrl.label(k)} yet. Build it with the viewer closed: "
+                           f"python -m viewer.model3d build {a.run_dir} {k}")
+            return
+        hide_model()
+        with lock:
+            make_look(k)
+        log.content = f"{ctrl.label(k)} now uses its 3D model (recolouring needs the scanned look)"
+
+    def on_appearance(k):                                  # scale changes rebuild nodes: keep the model in sync
+        build_nodes(k)
+        if k in looks:
+            make_look(k)
+    ctrl.on_appearance = on_appearance
 
     def hide_model():
         if model_node["h"] is not None:
@@ -737,6 +787,8 @@ def main():
             start_similar(k)
         elif chips.value == "3D model":
             show_model(k)
+        elif chips.value == "3D look":
+            set_look(k)
         else:
             hide_model()
             if show["k"] is not None:
@@ -1101,12 +1153,17 @@ def main():
                     state[kk] = (present, pose, captured, upright)
             with server.atomic():
                 for kk, (present, pose, rest, upright) in state.items():
-                    nodes[kk].visible = present
+                    look = looks.get(kk)                   # "3D look": the model replaces the scan splats
+                    nodes[kk].visible = present and look is None
                     if present:
                         nodes[kk].position, nodes[kk].wxyz = tuple(pose[0]), tuple(pose[1])
+                    if look is not None:
+                        look.visible = present
+                        if present:
+                            look.position, look.wxyz = tuple(pose[0]), tuple(qmul(pose[1], Q_YUP_TO_ZUP))
                     if kk in refl_nodes:
                         # Captured reflections include table pixels: never translate them with an object.
-                        refl_nodes[kk].visible = rest
+                        refl_nodes[kk].visible = rest and look is None
                     if kk in contact_nodes:
                         contact_nodes[kk].visible = rest
                     if kk in fill_nodes:

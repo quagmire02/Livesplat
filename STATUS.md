@@ -2,6 +2,11 @@
 
 Updated: Oct 30.
 
+## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
+- Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.
+- 3D look ("3D look" button, or "use the 3d model look" / "back to the scanned look"): the Hunyuan model replaces the scan splats. A separate `/look<k>` node follows the physics pose every frame (`qmul(pose, Q_YUP_TO_ZUP)`, tested in `tests/test_look_quat.py`), so drag, push, drop and scale keep working. Recolouring only affects the scanned look.
+- Next: robotics lab (real-to-sim for university labs: grasp/part tests across property ranges, results + suggestions; LiDAR importer when the user has iPhone footage).
+
 ## 3D models + Muse names — Oct 30 (late night)
 - Names: `agent.properties` now sends 3 views and asks for brand, specific type and visible text. `--names-only` refreshes names.json without touching mass/friction/scale.
   - table1 is now "cetaphil moisturizing lotion pump bottle", "gillette aerosol deodorant spray" (alias "shield"), "toilet paper roll". The cut-outs show "Gillette" on the can.

@@ -15,6 +15,8 @@ EXPLAIN = re.compile(r"\b(what('?s| is) (this|it|that)( thing)?|what am i lookin
 GUIDE = re.compile(r"(how (do|can|would|should) (i|we|you)|how to|step by step|teach me|help me|walk me through|"
                    r"what can i (make|do) with)\b")
 USE_IT = re.compile(r"how (do|can|should) (i|you) use|how to use")
+LOOK = re.compile(r"\b(use|switch to|show) (it |this |the )?(as )?(the |a )?(3d |three d )?(model|scan|scanned|original) "
+                  r"(look|version|instead)\b|\b(3d|model) look\b|\bback to (the )?(scan|scanned|original)( look)?\b")
 MODEL = re.compile(r"\b(3d|three d|3-d)\b.*\b(model|version|file|mesh|copy)\b|\b(make|build|create|download|export|"
                    r"get) (me )?(a |the )?(model|mesh|glb|obj file)\b")
 
@@ -28,7 +30,9 @@ def route(text, has_object):
         modes.append("explain")
     if has_object and SIMILAR.search(q):
         modes.append("similar")
-    if has_object and MODEL.search(q):
+    if has_object and LOOK.search(q):
+        modes.append("look")
+    elif has_object and MODEL.search(q):
         modes.append("model")
     if GUIDE.match(q) and not (has_object and USE_IT.match(q)):
         modes.append("guide")
