@@ -1,0 +1,9 @@
+# SO-100 / SO-ARM100 printed jaw (one moving finger, STS3215 servo). Opening from sim/robots/so100.yaml.
+# Grip force is an ESTIMATE (servo torque over the jaw lever, sustained, not stall). Measure yours and edit.
+name: SO-100 jaw
+type: parallel
+max_opening_m: 0.060
+min_opening_m: 0.0
+finger_depth_m: 0.030
+grip_force_n: 12
+pad_friction: 0.35         # bare PLA; TPU pads ~0.8

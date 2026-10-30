@@ -1,0 +1,8 @@
+# Robotiq 2F-85 (parallel, adaptive). Spec sheet: 85 mm stroke, 20-235 N grip force (set to your setting).
+name: Robotiq 2F-85
+type: parallel
+max_opening_m: 0.085
+min_opening_m: 0.0
+finger_depth_m: 0.038
+grip_force_n: 100
+pad_friction: 0.9          # rubber fingertip pads

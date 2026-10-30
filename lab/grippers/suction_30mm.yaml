@@ -1,0 +1,7 @@
+# Generic 30 mm bellows suction cup on a vacuum generator (-60 kPa). Edit for your cup and pump.
+name: Suction cup 30 mm
+type: suction
+cup_diameter_m: 0.030
+vacuum_kpa: 60
+efficiency: 0.5            # leaks, curvature, cup deformation
+max_curvature_dev_m: 0.002 # surface may deviate this much from flat under the cup (bellows tolerate a little)

@@ -12,7 +12,11 @@ Updated: Oct 30.
 - Done:
   - `lab/transport.py` + `lab/objects.py` (3D-model hulls with a flat base, checked to stand). 3 known-answer tests.
   - table1 on wood: safe braking 1.75 m/s². The can tips first (0.22 g sideways); a rubber mat does not help, because tipping is the limit.
-- Next: grasp test, gripper fit, camera, viewer Lab tab, report export.
+- Done: `lab/gripper.py` (jaws + suction) with 4 gripper files. table1:
+  - Panda and Robotiq hold all three objects.
+  - SO-100 jaw: the bottle holds in 22% of cases (grip force 12 N vs 16 N needed); the roll in 33% (58 mm vs a 60 mm opening: depends on scale).
+  - Suction 30 mm: bottle front side OK; the can is too curved; paper is porous.
+- Next: grasp test (arm), camera, viewer Lab tab, report export.
 
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.

@@ -1,0 +1,8 @@
+# Franka Panda Hand (parallel). Spec sheet: 80 mm stroke, 70 N continuous grip force.
+name: Panda hand
+type: parallel
+max_opening_m: 0.080
+min_opening_m: 0.0
+finger_depth_m: 0.018      # how far the pads reach along the object
+grip_force_n: 70
+pad_friction: 0.5          # stock plastic fingertips
