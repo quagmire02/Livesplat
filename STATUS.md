@@ -1,6 +1,22 @@
 # STATUS
 
-Updated: Oct 29.
+Updated: Oct 30.
+
+## Director mode + market search — Oct 30
+- Verified on table1 via Baseten (each goal about $0.05–0.10):
+  - "knock the roll off the table": met in round 1.
+  - "bottle next to the can, not touching, standing": met (1 cm gap) after `slide` was added.
+  - "line up all three in a row": 8/10 (gaps fine, but a triangle, not a line).
+- Physics bug fixed: the table/floor friction (0.6/0.8) overrode every object's friction, because MuJoCo takes the max of the two. Both are now 0.02, so `set_friction` works (bottle slides 1.22 at mu 0.1 vs 0.08 at mu 0.8).
+- New tool `slide(obj, direction, distance | target, gap)`: hand-guided steady move that stays upright; with a target it stops just short of it. `push` remains a flick. Tests in `tests/test_slide.py`.
+- Director: retries once with double tokens if a reply spent all its tokens on reasoning.
+- The viewer starts cleanly. The Director button and the market search are not yet clicked through in the browser.
+- `agent/director.py`: goal → Muse proposes 6 plans → each runs headless in MuJoCo → Muse scores the measured outcomes and revises (3 rounds) → best plan plays live. Viewer: Play > "plan it · Director" (planner must be meta/baseten). Logs go to `runs/<scene>/director/*.json`. CLI: `python -m agent.director <run> "<goal>" --provider baseten`.
+- `backends/search.py`: free product search. SearXNG (`LIVESPLAT_SEARXNG_URL`) or DuckDuckGo (`ddgs`, no key) → Muse picks listings; prices and urls are checked against the result text. Viewer: Object > "Search the market" (needs a loaded analysis card).
+- Budget: total 140 USD, per call 4 USD (user decision). Muse is the default planner when allowed.
+- Works: Baseten connection (confirmed by the user).
+- `ddgs` is installed (`uv pip`; the venv has no pip) and returns Amazon/Target results with no key.
+- Next step: click through Director and market search in the viewer. Absolute placement ("row", "centre") needs a slide to an xy point.
 
 ## Documentation handoff — Oct 29
 - Added root CHANGE_NOTES.md and short folder notes in viewer, agent, backends, backends/meta, recon, scene_io, segment, tests and docs. Each distinguishes implemented work from pending features; existing folder indexes link to their notes.
@@ -107,6 +123,7 @@ Updated: Oct 29.
 
 ## Dependencies added
 - viser, mujoco, trimesh, scikit-learn, sam2, meta-sam-parser (SAM 3.1 decoder), pycolmap (global SfM, CPU).
+- ddgs (to install): free keyless web search for market lookup; Google's search API no longer takes new users.
 
 ## SAM-grounded reference panel (2026-10-29)
 - Select -> Isolate with SAM 3.1 (cached, $0) -> Muse analyses masked crops + diagnosis overlays -> card with scan issues, capture guidance, suggested fix (preview/apply via Repair). Live Muse round for PROMPT_SAM not yet approved.

@@ -1,7 +1,8 @@
 """Budget guard for paid Meta API calls.
 
 Every paid call is written to ledger.jsonl with its cost. A call is refused
-if spent + worst-case estimate would exceed LIVESPLAT_BUDGET_USD (default 1.00).
+if spent + worst-case estimate would exceed LIVESPLAT_BUDGET_USD (default 140.00),
+or if one call's estimate exceeds LIVESPLAT_MAX_CALL_USD (default 4.00).
 Failed calls are still charged at their estimate (pessimistic).
 """
 import json
@@ -28,7 +29,7 @@ def ledger_path():
 
 
 def budget() -> float:
-    return float(os.environ.get("LIVESPLAT_BUDGET_USD", "1.00"))
+    return float(os.environ.get("LIVESPLAT_BUDGET_USD", "140.00"))   # Oct 30: ~$145 credit left, user-approved
 
 
 def spent() -> float:
@@ -38,7 +39,13 @@ def spent() -> float:
     return sum(json.loads(l)["usd"] for l in p.read_text().splitlines() if l.strip())
 
 
+def max_call() -> float:
+    return float(os.environ.get("LIVESPLAT_MAX_CALL_USD", "4.00"))
+
+
 def check(estimate_usd: float, what: str):
+    if estimate_usd > max_call():
+        raise BudgetExceeded(f"{what}: est ${estimate_usd:.4f} > per-call cap ${max_call():.2f}")
     s = spent()
     if s + estimate_usd > budget():
         raise BudgetExceeded(f"{what}: spent ${s:.4f} + est ${estimate_usd:.4f} > budget ${budget():.2f}")

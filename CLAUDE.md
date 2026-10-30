@@ -9,8 +9,8 @@ Submission: demo video + public repo. Deadline: **Nov 4, 9:00 PM ET** (Nov 5, 6:
 
 ## 1. Hard rules (read first)
 
-1. **Paid API calls need user approval, per round.** The default backend is `local`. No API calls while base features are being built; API rounds happen only after base features are done, to tune (min-max) them, and each round needs a new OK in chat.
-2. **Budget guard.** `backends/meta/budget.py` writes every paid call to `.cache/api/ledger.jsonl` with its estimated cost. It refuses a call if the total would go above `LIVESPLAT_BUDGET_USD` (default **1.00**). Do not bypass it.
+1. **Muse models are the default (user decision, Oct 30).** About $145 of credit, 4 days left. Use the meta/baseten backends rather than the local ones. Viewer: run with `LIVESPLAT_ALLOW_META=1` (and `LIVESPLAT_ALLOW_BASETEN=1`), and the planner then defaults to `meta`.
+2. **Budget guard.** `backends/meta/budget.py` writes every paid call to `.cache/api/ledger.jsonl` with its estimated cost. It refuses a call if the total would go above `LIVESPLAT_BUDGET_USD` (default **140**), or if a single call's estimate is above `LIVESPLAT_MAX_CALL_USD` (default **4**). Do not bypass it.
 3. **Every API response goes to the disk cache** (`.cache/api/`, keyed by a hash of the request). Read the cache before any call.
 4. **Do not copy ThriftSplat code into this repo.** Call ThriftSplat as a separate program (stage 0) in its own venv. It is the reconstruction front end.
 5. **6 GB GPU.** Do not run SAM 2 and splat training at the same time. Release GPU memory between stages.

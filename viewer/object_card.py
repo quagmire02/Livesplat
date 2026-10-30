@@ -119,6 +119,11 @@ class ObjectCards:
                                       hint='Masks the object in 3 source views and diagnoses the scan against the masks.')
         fix = gui.add_button_group('suggested fix', ['preview fix', 'apply fix'])
         self.confirm = gui.add_button('use suggested object name', disabled=True)
+        self.market_btn = gui.add_button('Search the market (prices, competitors)',
+                                         hint='Free web search (DuckDuckGo or SearXNG) on the Muse search words, then Muse '
+                                              'picks listings and prices from the results. Needs an analysis first.')
+        self.market = {}
+        self.market_btn.on_click(lambda _: self.start_market())
         self.iso, self.repair = {}, None                    # repair panel is attached by viewer.app
         self.isolate.on_click(lambda _: self.start_isolate())
         fix.on_click(lambda _: self.fix(fix.value))
@@ -175,6 +180,33 @@ class ObjectCards:
             finally:
                 self.cached.disabled = False
                 self.analyse.disabled = not self.allow_live
+                self.busy.release()
+        threading.Thread(target=work, daemon=True).start()
+
+    def start_market(self):
+        import os
+        k = self.selected
+        card = self.cards.get(k)
+        if card is None:
+            self.status.content = 'Analyse the object (or load the cached analysis) first: search uses its name.'
+            return
+        if not self.busy.acquire(blocking=False):
+            return
+        provider = 'baseten' if os.environ.get('LIVESPLAT_ALLOW_BASETEN') == '1' else 'meta'
+        self.status.content = f'Searching the web for "{card["search_query"]}"…'
+
+        def work():
+            try:
+                from backends.search import market
+                self.market[k] = market(card['name'], card['search_query'] or card['name'], provider,
+                                        cache_only=not self.allow_live and provider == 'meta')
+                m = self.market[k]
+                self.status.content = (f'Object {k}: {len(m["listings"])} listings from {m["results"]} web results, '
+                                       f'price range {m["price_range"]}.')
+                self.render()
+            except Exception as e:
+                self.status.content = f'Market search unavailable: {e}'
+            finally:
                 self.busy.release()
         threading.Thread(target=work, daemon=True).start()
 
@@ -281,7 +313,18 @@ class ObjectCards:
                 body += f'<p><b>Muse suggests:</b> {esc(card["repair_advice"].replace("_", " "))}</p>'
         else:
             body += '<p>No analysis loaded. Use the References tab to check cache or request an approved Muse analysis.</p>'
-        body += '<small>Original source crops; not marketplace matches. No online search performed.</small>'
+        m = self.market.get(k)
+        if m:
+            body += f'<h3>Market</h3><p>{esc(m["summary"])}</p><p>Price range: {esc(m["price_range"])}</p>'
+            for l in m['listings']:
+                body += (f'<p style="margin:4px 0"><a style="color:#ff8c42" href="{esc(l["url"])}" target="_blank" '
+                         f'rel="noopener">{esc(l["title"])}</a><br><small>{esc(l["store"])} · '
+                         f'{esc(l["price"] or "price not shown")}</small></p>')
+            if m['competitors']:
+                body += '<b>Competitors</b><ul>' + ''.join(f'<li>{esc(s)}</li>' for s in m['competitors']) + '</ul>'
+            body += '<small>Web results picked by Muse; prices as listed, not verified.</small>'
+        else:
+            body += '<small>Original source crops. Use "Search the market" for prices and competitors.</small>'
         self.panel.content = ('<style>@media(max-width:900px){.ls-references{position:relative!important;left:auto!important;top:auto!important;width:100%!important;max-height:45vh!important}}</style>'
             '<aside class="ls-references" style="position:fixed;left:12px;top:60px;width:260px;max-height:85vh;overflow:auto;'
             'background:#242424;color:#eee;padding:14px;border:1px solid #555;border-radius:8px;z-index:20;font-size:12px;pointer-events:auto">'

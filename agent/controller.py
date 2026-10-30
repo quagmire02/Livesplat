@@ -144,6 +144,19 @@ class Controller:
         self.w.push(k, d[:2], speed)
         return f"pushed {self.label(k)} {direction}{' of ' + target if target else ''} at {speed:.1f} scene units/s"
 
+    def t_slide(self, obj, direction, distance=None, target=None, gap=0.01):
+        k = self.resolve(obj)
+        d = self._dir(direction, k, target)
+        if distance is None:
+            if target is None or direction == "away":
+                return "error: slide needs a distance, or a target to slide toward"
+            A, B = self._world_hull(k)[:, :2], self._world_hull(self.resolve(target))[:, :2]
+            # Gap measured along the slide direction: how far k can travel before its hull meets the target's.
+            ahead = (B @ d[:2]).min() - (A @ d[:2]).max()
+            distance = max(0.0, ahead - gap)
+        self.w.slide(k, d[:2], distance)
+        return f"sliding {self.label(k)} {direction}{' of ' + target if target else ''} by {distance:.3f} scene units"
+
     def t_drop(self, obj, height=0.3):
         k = self.resolve(obj)
         self.w.drop(k, height)
@@ -252,7 +265,8 @@ class Controller:
             if changed:
                 self.on_appearance(k)
         self.w.gravity = 9.81
-        self.w._build(keep=False)                          # fresh model: rest poses, zero velocity
+        self.w.slides.clear()
+        self.w._build(keep=False)                         # fresh model: rest poses, zero velocity
         return "reset everything: positions, colours, sizes, removed objects, properties, gravity"
 
     def t_simulate(self, actions, seconds=2.0):
@@ -266,6 +280,7 @@ class Controller:
         predicted = mujoco.MjData(self.w.m)
         mujoco.mj_copyData(predicted, self.w.m, live)
         self.w.d = predicted
+        slides = {k: list(v) for k, v in self.w.slides.items()}
         try:
             ids = [o["id"] for o in self.sc.objects if not o.get("removed")]
             p0 = {k: self.w.pose(k)[0] for k in ids}
@@ -284,3 +299,4 @@ class Controller:
             return "prediction (" + "; ".join(log) + f") after {seconds:.0f}s: " + ("; ".join(rows) or "nothing moves")
         finally:
             self.w.d = live
+            self.w.slides = slides

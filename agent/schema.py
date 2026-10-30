@@ -30,6 +30,13 @@ TOOLS = [
          "speed": {"type": "number", "description": "m/s, 0.2 gentle .. 3 hard; default 0.6"},
          "target": {"type": "string", "description": "object to push toward/away from (optional)"}},
         ["obj", "direction"]),
+    _fn("slide", "Guide an object steadily by hand (it stays upright, then stops). With a target and no distance it "
+        "stops just short of the target.",
+        {"obj": _OBJ, "direction": {"type": "string", "enum": DIRECTIONS},
+         "distance": {"type": "number", "description": "scene units to move (optional with a target)"},
+         "target": {"type": "string", "description": "object to slide toward/away from (optional)"},
+         "gap": {"type": "number", "description": "with a target: gap to leave in scene units, default 0.01"}},
+        ["obj", "direction"]),
     _fn("drop", "Lift an object and let it fall.", {"obj": _OBJ, "height": {"type": "number", "description": "m above its rest pose, default 0.3"}}, ["obj"]),
     _fn("throw", "Throw an object upward with spin.", {"obj": _OBJ, "speed": {"type": "number", "description": "m/s, default 2.5"}}, ["obj"]),
     _fn("stack", "Place obj on top of base and let physics settle it.", {"obj": _OBJ, "base": _OBJ}, ["obj", "base"]),
@@ -48,9 +55,9 @@ TOOLS = [
          "seconds": {"type": "number", "description": "default 2"}}, ["actions"]),
 ]
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
-ACTIONS = {"push", "drop", "throw", "stack"}            # allowed inside simulate
+ACTIONS = {"push", "slide", "drop", "throw", "stack"}            # allowed inside simulate
 LIMITS = {"speed": (0.05, 5.0), "height": (0.0, 2.0), "kg": (0.001, 50.0), "mu": (0.0, 2.0),
-          "e": (0.0, 0.95), "g": (0.0, 50.0), "factor": (0.2, 4.0), "seconds": (0.1, 10.0)}
+          "e": (0.0, 0.95), "g": (0.0, 50.0), "distance": (0.0, 3.0), "gap": (0.0, 0.5), "factor": (0.2, 4.0), "seconds": (0.1, 10.0)}
 
 
 def validate(call):

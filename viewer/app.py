@@ -273,8 +273,12 @@ def main():
     with play_tab:
         intro = server.gui.add_markdown("**Click** an object to select it, **drag** its arrows to move it, "
                                         "or **tell it** what to do.")
-        box = server.gui.add_text("command", examples["push"] + ", then make it red")
+        box = server.gui.add_text("command", examples["push"] + ", then make it red",
+                                  hint="A command (run command) or a goal for Director, e.g. 'slide the bottle next to the can'")
         go = server.gui.add_button("run command")
+        direct_btn = server.gui.add_button("plan it · Director", hint="Give a goal ('stack everything into a tower'). "
+                                           "Muse proposes plans, physics tests each, Muse revises, the best one plays.")
+        direct_md = server.gui.add_markdown("", visible=False)
         try_btn = server.gui.add_button_group("try", list(examples))
         sel_md = server.gui.add_markdown("_nothing selected_")
         obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
@@ -291,6 +295,7 @@ def main():
         allow_baseten = os.environ.get("LIVESPLAT_ALLOW_BASETEN") == "1" and bool(os.environ.get("BASETEN_API_KEY"))
         planner = server.gui.add_dropdown("planner", ["local", "cached"] + (["meta"] if allow_meta else [])
                                           + (["baseten"] if allow_baseten else []),
+                                          initial_value="meta" if allow_meta else "baseten" if allow_baseten else "local",
                                           hint="local = offline rules; cached = saved Muse responses only; meta = approved "
                                                "live round; baseten = Muse Spark Open (open weights) on Baseten credit")
     log = Toast()
@@ -318,7 +323,7 @@ def main():
                        and not res.startswith("error:")]
             if changes:
                 session.record(text, before)
-            if any(c["name"] in ("push", "drop", "throw", "stack") for c in changes):
+            if any(c["name"] in ("push", "slide", "drop", "throw", "stack") for c in changes):
                 ui["paused"] = False
             sync_mode()
         lines = [f"{text}"] + [f"• {res}" for c, res in results]
@@ -330,6 +335,49 @@ def main():
         show_selection()
 
     go.on_click(lambda _: run_command(box.value))
+    director_busy = threading.Lock()
+
+    @direct_btn.on_click
+    def _(_):
+        from agent import director
+        provider = planner.value if planner else "local"
+        if provider not in ("meta", "baseten"):
+            log.content = "Director needs Muse: set planner to meta or baseten (Play > settings)."
+            return
+        if not director_busy.acquire(blocking=False):
+            log.content = "Director is already working on a goal."
+            return
+        goal = box.value
+        direct_btn.disabled = True
+
+        def work():
+            try:
+                res = director.direct(goal, ctrl, provider, lock=lock, log_dir=Path(a.run_dir) / "director",
+                                      progress=lambda s: setattr(log, "content", s))
+                rows = [f"**Director** · {goal}"]
+                for i, batch in enumerate(res["rounds"]):
+                    rows += [f"- r{i + 1}: {b['plan']['idea']} → "
+                             + (f"{b['score']:.0f}/10" if b["score"] is not None else "not scored") for b in batch]
+                direct_md.content, direct_md.visible = "\n".join(rows[:25]), True
+                if res["best"]["plan"] is None:
+                    log.content = director.summary(res)
+                    return
+                with lock:
+                    before = session.snapshot()
+                    ui["paused"] = False
+                    sync_mode()
+                log.content = director.summary(res) + "\nplaying it now…"
+                director.play(res["best"]["plan"], ctrl, lock)
+                session.record(f"director: {goal}", before)
+                history[:0] = [director.summary(res)]
+                log.content = director.summary(res)
+                print(director.summary(res), flush=True)
+            except Exception as e:
+                log.content = f"Director failed: {e}"
+            finally:
+                direct_btn.disabled = False
+                director_busy.release()
+        threading.Thread(target=work, daemon=True).start()
 
     @try_btn.on_click
     def _(_):

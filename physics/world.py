@@ -43,8 +43,9 @@ def build_xml(objects, polygon, table_thick, floor_z, gravity=9.81):
   <option timestep="{DT}" gravity="0 0 {-gravity}" integrator="implicitfast"/>
   <asset>{''.join(assets)}</asset>
   <worldbody>
-    <geom name="floor" type="plane" pos="0 0 {floor_z:.6g}" size="0 0 0.05" friction="0.8 0.005 0.0001"/>
-    <geom name="table" type="mesh" mesh="table" friction="0.6 0.005 0.0001"/>
+    <!-- MuJoCo uses the MAX friction of the two geoms: keep these low so each object's own friction applies -->
+    <geom name="floor" type="plane" pos="0 0 {floor_z:.6g}" size="0 0 0.05" friction="0.02 0.005 0.0001"/>
+    <geom name="table" type="mesh" mesh="table" friction="0.02 0.005 0.0001"/>
     {''.join(bodies)}
   </worldbody>
 </mujoco>"""
@@ -68,6 +69,7 @@ class World:
         self.objects = objects
         self.polygon, self.table_thick, self.floor_z = polygon, table_thick, floor_z
         self.gravity = 9.81
+        self.slides = {}                     # id -> [unit xy direction, speed, distance left]: hand-guided pushes
         self._build()
 
     def _build(self, keep=True):
@@ -99,8 +101,27 @@ class World:
     # ---- state -----------------------------------------------------------
     def step(self, seconds):
         for _ in range(max(1, int(round(seconds / DT)))):
+            if self.slides:
+                self._guide()
             mujoco.mj_step(self.m, self.d)
         self.d.xfrc_applied[:] = 0
+
+    def _guide(self):
+        """Hand-guided slide: steady horizontal speed, no tipping rotation, released after the distance."""
+        for k in list(self.slides):
+            if k not in self.bid:
+                del self.slides[k]
+                continue
+            u, v, left = self.slides[k]
+            _, dof = self._jnt(k)
+            if left <= 0:
+                self.d.qvel[dof:dof + 2] = 0
+                self.d.qvel[dof + 3:dof + 6] = 0
+                del self.slides[k]
+                continue
+            self.d.qvel[dof:dof + 2] = u * v
+            self.d.qvel[dof + 3:dof + 6] = 0
+            self.slides[k][2] = left - v * DT
 
     def forward(self):
         mujoco.mj_forward(self.m, self.d)
@@ -156,6 +177,12 @@ class World:
         v[:len(direction)] = direction
         v /= max(np.linalg.norm(v), 1e-9)
         self.d.qvel[dof:dof + 3] += speed * v
+
+    def slide(self, k, direction, distance, speed=0.3):
+        """Guide object k across the table for `distance` at a steady `speed` (like a hand), then let go."""
+        u = np.asarray(direction, float)[:2]
+        u = u / max(np.linalg.norm(u), 1e-9)
+        self.slides[k] = [u, float(speed), float(distance)]
 
     def drop(self, k, height):
         q, dof = self._jnt(k)
