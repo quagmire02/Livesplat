@@ -16,7 +16,13 @@ Updated: Oct 30.
   - Panda and Robotiq hold all three objects.
   - SO-100 jaw: the bottle holds in 22% of cases (grip force 12 N vs 16 N needed); the roll in 33% (58 mm vs a 60 mm opening: depends on scale).
   - Suction 30 mm: bottle front side OK; the can is too curved; paper is porous.
-- Next: grasp test (arm), camera, viewer Lab tab, report export.
+- Done: `lab/grasp.py` (arm grasp test over mass, friction and scale).
+  - Quick run: Panda takes the can by the side and the roll from the top; the bottle slips. SO-100 is blocked or out of reach on this layout.
+- Done: 3 more arms (ViperX 300 S, WidowX 250 S, xArm7) via `sim/robot_probe.py` (auto-drafted yaml).
+- Done: `lab/camera.py` (D435/D455/ZED 2i/Femto Bolt/C920; visibility/occlusion, pixels, range, depth noise, auto placement, synthetic depth + masks).
+  - D435 best at 0.45 m, 45° up (σz 0.5 mm). The D455's 0.52 m minimum range forces it to 0.8 m (about 50 px per object).
+- Done: Lab tab (`viewer/lab_panel.py`): tests, cards, report download, camera frustum + render, 12-view dataset export. Typing "the can is 15 cm tall" in the main box calibrates.
+- Next: the full grasp sweep for 5 arms (running), Muse-chosen grip points, verify the Lab tab in the browser.
 
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.

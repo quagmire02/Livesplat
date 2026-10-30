@@ -10,6 +10,8 @@ Files:
 - grasp.py — `python -m sim.grasp <sim_dir> [--mode auto|top|side|both]`. Arm class (actuators from the spec), dynamic grasps.
 - synthetic.py — Known-answer package (table + boxes). Use it to check a new robot.yaml.
 - view.py — SimMode(server, sim_dir): package splats + robot under /sim; panel: robot arm dropdown (sim/robots/*.yaml), "or your robot.yaml" path, base x / y / angle sliders, placement apply / auto place (re-plans in a thread, swaps robot meshes), object + grasp. Standalone: python -m sim.view <sim_dir>.
+- robot_probe.py — `python -m sim.robot_probe <model.xml> --name myarm`: drafts a robot yaml (joints, actuators, gripper actuator + open/closed, TCP between the finger bodies, approach/close axes, opening) by closing the gripper in sim. Used for vx300s, wx250s, xarm7 (checked on Panda: TCP 9.6 vs 10.3 cm hand-measured).
+- robots/: panda, so100, vx300s (ViperX 300 S, ALOHA), wx250s (WidowX 250 S, Bridge), xarm7 (UFACTORY xArm7 + gripper). Menagerie models in ~/livesplat_data/models/mujoco_menagerie (sparse checkout).
 - robots_list.py — robot_choices(): label -> yaml for every sim/robots/*.yaml.
 - run.sh — Runs a module with CUDA_HOME/PATH for the gsplat JIT.
 Results:

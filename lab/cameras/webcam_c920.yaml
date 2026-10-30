@@ -1,0 +1,7 @@
+# Logitech C920 (RGB only): 1920x1080, HFOV ~70 deg. No depth.
+name: Logitech C920 (RGB)
+resolution: [1920, 1080]
+hfov_deg: 70.4
+depth: none
+min_m: 0.1
+max_m: 10.0

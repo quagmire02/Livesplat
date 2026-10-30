@@ -1,0 +1,22 @@
+# Trossen ViperX 300 S (MuJoCo Menagerie, BSD-3). 6-DoF + parallel gripper; the ALOHA arm. Drafted by sim.robot_probe.
+name: vx300s
+model: ~/livesplat_data/models/mujoco_menagerie/trossen_vx300s/vx300s.xml
+root_body: base_link
+prefix: "vx300s/"
+arm_joints: [waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate]
+arm_actuators: [waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate]
+home: [0, -0.96, 1.16, 0, -0.3, 0]
+tcp: {body: gripper_link, offset: [0.1009, 0, 0]}
+approach_axis: [1, 0, 0]
+close_axis: [0, -1, 0]
+ik: full
+gripper:
+  type: parallel
+  actuator: gripper
+  open: 0.057
+  closed: 0.021
+  max_opening_m: 0.075                      # probe: 90 mm geom-centre gap; pad faces ~75 mm
+  palm_clearance_m: 0.04
+base_gap_m: -0.06                           # clamped on the table edge (ALOHA style)
+side_min_height_m: 0.03
+approach_tolerance_deg: 5

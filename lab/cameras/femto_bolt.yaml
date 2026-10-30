@@ -1,0 +1,9 @@
+# Orbbec Femto Bolt (Azure Kinect DK class) NFOV unbinned: 640x576, 75 x 65 deg, time-of-flight, 0.25-5.46 m.
+name: Orbbec Femto Bolt (NFOV)
+resolution: [640, 576]
+hfov_deg: 75
+depth: tof
+tof_sigma_m: 0.0011        # systematic + random, near range
+tof_sigma_rel: 0.001       # + 0.1 % of distance
+min_m: 0.25
+max_m: 5.46

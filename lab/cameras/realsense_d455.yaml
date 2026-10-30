@@ -1,0 +1,9 @@
+# Intel RealSense D455 (data sheet): depth 1280x720, HFOV 87 deg, active stereo, 95 mm baseline, ~0.6-6 m.
+name: RealSense D455
+resolution: [1280, 720]
+hfov_deg: 87
+depth: stereo
+baseline_m: 0.095
+subpixel_px: 0.08
+min_m: 0.52
+max_m: 6.0

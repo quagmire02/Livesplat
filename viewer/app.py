@@ -295,7 +295,7 @@ def main():
         # By task: Actions (quick buttons, settings), Object (details, AI identify, fix the scan), Scene, Robots.
         tabs = server.gui.add_tab_group()
         play_tab, obj_tab, clean_tab, sim_tab = (tabs.add_tab("Actions"), tabs.add_tab("Object"),
-                                                 tabs.add_tab("Scene"), tabs.add_tab("Robots"))
+                                                 tabs.add_tab("Scene"), tabs.add_tab("Lab"))
     with obj_tab:
         inspect_tab = server.gui.add_folder("Details & placement")
         references_tab = server.gui.add_folder("Identify with AI", expand_by_default=False)
@@ -321,8 +321,11 @@ def main():
                                           hint="local = offline rules; cached = saved Muse responses only; meta = approved "
                                                "live round; baseten = Muse Spark Open (open weights) on Baseten credit")
     log = Toast()
+    lab_html = server.gui.add_html("")
     with sim_tab:
-        server.gui.add_markdown("Test **robot arms** on this table: pick an arm, place it, try grasps.")
+        from viewer.lab_panel import LabPanel
+        lab = LabPanel(server, sc, a.run_dir, a.src, ctrl, lambda s: setattr(log, "content", s), lab_html)
+        server.gui.add_markdown("**Watch an arm** on this table (robot placement, grasps):")
         mode_btn = server.gui.add_button("start simulation mode", visible=bool(sim_dir))
         if not sim_dir:
             server.gui.add_markdown("_No simulation package yet. Run `python -m sim.export <run> --scale ...` "
@@ -337,8 +340,12 @@ def main():
         if not text.strip():
             return
         # Questions go straight to their mode (no routing call = faster); everything else goes to the planner.
+        from measure.scale import parse_size
         from viewer.route import find_object, route
         target = ui["sel"] if ui["sel"] is not None else find_object(text, ctrl.names)
+        if parse_size(text) and target is not None and not re.search(r"\b(make|scale|resize)\b", text.lower()):
+            lab.calibrate(text if find_object(text, ctrl.names) else f"{ctrl.label(target)} {text}")
+            return                                        # "the can is 15 cm tall" = a real size: calibrate
         modes = route(text, target is not None)
         if modes:
             if "guide" in modes and len(modes) == 1:

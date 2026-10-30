@@ -1,0 +1,22 @@
+# Trossen WidowX 250 S (MuJoCo Menagerie, BSD-3). 6-DoF + parallel gripper; the BridgeData arm. Drafted by sim.robot_probe.
+name: wx250s
+model: ~/livesplat_data/models/mujoco_menagerie/trossen_wx250s/wx250s.xml
+root_body: wx250s/base_link
+prefix: "wx250s/"
+arm_joints: [waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate]
+arm_actuators: [waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate]
+home: [0, -0.96, 1.16, 0, -0.3, 0]
+tcp: {body: wx250s/gripper_link, offset: [0.0932, 0, 0]}
+approach_axis: [1, 0, 0]
+close_axis: [0, -1, 0]
+ik: full
+gripper:
+  type: parallel
+  actuator: gripper
+  open: 0.037
+  closed: 0.015
+  max_opening_m: 0.050                      # probe: 62 mm geom-centre gap; pad faces ~50 mm
+  palm_clearance_m: 0.035
+base_gap_m: -0.06                           # clamped on the table edge
+side_min_height_m: 0.03
+approach_tolerance_deg: 5

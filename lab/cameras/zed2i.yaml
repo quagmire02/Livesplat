@@ -1,0 +1,9 @@
+# Stereolabs ZED 2i (data sheet): 1280x720 mode, HFOV ~102 deg (2.1 mm lens), passive stereo, 120 mm baseline.
+name: ZED 2i
+resolution: [1280, 720]
+hfov_deg: 102
+depth: stereo
+baseline_m: 0.120
+subpixel_px: 0.15          # passive stereo: noisier on low texture
+min_m: 0.3
+max_m: 20.0

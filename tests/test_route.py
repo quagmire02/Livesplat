@@ -40,6 +40,13 @@ def test_route(text, has_object, want):
     assert route(text, has_object) == want
 
 
+def test_parse_size():
+    from measure.scale import parse_size
+    assert parse_size("the can is 15 cm tall") == ("height", 0.15)
+    assert parse_size("bottle 70 mm wide")[0] == "width" and abs(parse_size("bottle 70 mm wide")[1] - 0.07) < 1e-9
+    assert parse_size("make it twice as big") is None
+
+
 NAMES = {1: ["cetaphil moisturizing lotion pump bottle", "lotion bottle", "pump bottle"],
          2: ["gillette aerosol deodorant spray", "deodorant", "spray can", "shield"],
          3: ["toilet paper roll", "toilet roll"]}

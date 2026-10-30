@@ -1,0 +1,22 @@
+# UFACTORY xArm7 with xArm gripper (MuJoCo Menagerie, BSD-3). 7-DoF + parallel gripper. Drafted by sim.robot_probe.
+name: xarm7
+model: ~/livesplat_data/models/mujoco_menagerie/ufactory_xarm7/xarm7.xml
+root_body: link_base
+prefix: "xarm7/"
+arm_joints: [joint1, joint2, joint3, joint4, joint5, joint6, joint7]
+arm_actuators: [act1, act2, act3, act4, act5, act6, act7]
+home: [0, -0.247, 0, 0.909, 0, 1.156, 0]
+tcp: {body: xarm_gripper_base_link, offset: [0, 0, 0.1502]}
+approach_axis: [0, 0, 1]
+close_axis: [0, -1, 0]
+ik: full
+gripper:
+  type: parallel
+  actuator: gripper
+  open: 0
+  closed: 255
+  max_opening_m: 0.085                      # spec sheet stroke 86 mm (probe: 98 mm geom-centre gap)
+  palm_clearance_m: 0.04
+base_gap_m: 0.10
+side_min_height_m: 0.045
+approach_tolerance_deg: 5

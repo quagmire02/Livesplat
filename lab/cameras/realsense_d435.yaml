@@ -1,0 +1,9 @@
+# Intel RealSense D435 (data sheet): depth 1280x720, HFOV 87 deg, active stereo, 50 mm baseline, ~0.3-3 m useful.
+name: RealSense D435
+resolution: [1280, 720]
+hfov_deg: 87
+depth: stereo
+baseline_m: 0.050
+subpixel_px: 0.08          # RMS disparity error (subpixel)
+min_m: 0.28
+max_m: 3.0

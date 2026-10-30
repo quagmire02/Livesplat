@@ -1,6 +1,7 @@
 # viewer/ — Viser app
 Files:
 - object_card.py — Left reference sidebar: up to three distinct source-frame crops from existing object labels, cached-first Muse identity/evidence/uncertainty/capture suggestions and explicit name confirmation (editor undo supported). References tab controls visibility and cache/live requests. Live requests remain permission/budget gated; no automatic calls, online search or new SAM requests. Crops are not pixel masks, and photo analysis cannot diagnose reconstruction holes.
+- lab_panel.py — Lab tab (More tools > Lab): scale/calibrate, equipment dropdowns, transport / gripper fit / arm grasp / camera tests, result cards, report + dataset download. Logic lives in lab/.
 - model3d.py — user 3D model per object: prep (Muse front + real front/left/back/right frames, SAM 3.1 cut-outs) -> segment/hy3d_shape.py (Hunyuan3D-2mv, hy3d venv) -> paint (align to scan, colours from real photos) -> <run>/gen/model_<id>/model.glb.
 - route.py — fast routing of typed questions (similar / explain / guide) without a model call; tests/test_route.py.
 - explain.py — Explain mode: Muse picks parts + narration from close-up photos, SAM 3.1 finds each part, masks are projected onto the object's splats (3D labels) and drawn on a photo diagram. CLI: python -m viewer.explain <run> <id> "<question>".
