@@ -13,7 +13,8 @@ import sys
 import threading
 from pathlib import Path
 
-ARMS = {"SO-100": "so100", "Panda": "panda", "ViperX 300 S": "vx300s", "WidowX 250 S": "wx250s", "xArm7": "xarm7"}
+ARMS = {"SO-100": "so100", "Panda": "panda", "xArm7": "xarm7",
+        "ViperX 300 S (unverified)": "vx300s", "WidowX 250 S (unverified)": "wx250s"}   # Trossen specs: check vs sim.synthetic
 GRIPPERS = {"SO-100 jaw": "so100_jaw", "Panda hand": "panda_hand", "Robotiq 2F-85": "robotiq_2f85",
             "Suction cup 30 mm": "suction_30mm"}
 SURFACES = {"wood": "wood", "plastic tray": "plastic", "rubber mat": "rubber"}

@@ -22,7 +22,12 @@ Updated: Oct 30.
 - Done: `lab/camera.py` (D435/D455/ZED 2i/Femto Bolt/C920; visibility/occlusion, pixels, range, depth noise, auto placement, synthetic depth + masks).
   - D435 best at 0.45 m, 45° up (σz 0.5 mm). The D455's 0.52 m minimum range forces it to 0.8 m (about 50 px per object).
 - Done: Lab tab (`viewer/lab_panel.py`): tests, cards, report download, camera frustum + render, 12-view dataset export. Typing "the can is 15 cm tall" in the main box calibrates.
-- Next: the full grasp sweep for 5 arms (running), Muse-chosen grip points, verify the Lab tab in the browser.
+- Full grasp sweep (27 cases per grasp: mass × friction × scale):
+  - Panda: can side 85%, roll top 67% (scale-dependent), bottle 0% (slips).
+  - xArm7: bottle top 100%, can 100%, roll top 33%.
+  - SO-100: blocked or out of reach on this layout.
+  - ViperX/WidowX: ~0% on everything. The Menagerie gripper kp is 200 N/m (~1 N grip), so `gripper.kp` 1500 was added to the robot yaml, but they still fail. The auto-drafted spec (TCP/open-close) is suspect, so they are marked "(unverified)" in the Lab tab.
+- Next: validate vx300s/wx250s with sim.synthetic (known answers); Muse-chosen grip points; click through the Lab tab in the browser.
 
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.

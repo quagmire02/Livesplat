@@ -26,8 +26,12 @@ SIDE_MIN_H = 0.045            # side grasp: lowest pad height above the table (h
 def build(sim, spec, base_xyz, yaw):
     """robot_scene_<name>.xml = scene.xml + the robot attached at base_xyz, facing yaw."""
     dst = sim / "robot" / spec.name
-    if not dst.exists():
-        shutil.copytree(spec.model.parent, dst, ignore=shutil.ignore_patterns("mjx_*", "*.png"))
+    if not (dst / ".copied").exists():                             # marker: an older copy may lack textures
+        root = spec.model.parent
+        skip = lambda d, files: [f for f in files if f.startswith("mjx_") or               # preview pictures only:
+                                 (f.endswith(".png") and d == str(root))]              # textures live in assets/
+        shutil.copytree(root, dst, ignore=skip, dirs_exist_ok=True)
+        (dst / ".copied").touch()
     scene = mujoco.MjSpec.from_file(str(sim / "scene.xml"))
     child = mujoco.MjSpec.from_file(str(dst / spec.model.name))
     q = [np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)]
@@ -40,8 +44,13 @@ def build(sim, spec, base_xyz, yaw):
     for mesh in scene.meshes:                                      # paths, then relative ones in the file
         if mesh.name.startswith(spec.prefix) and not mesh.file.startswith("/"):
             mesh.file = absdir + mesh.file
+    texdir = str((dst / (child.texturedir or child.meshdir or ".")).resolve()) + "/"
+    for tex in scene.textures:                                     # same for texture images (Trossen arms)
+        if tex.name.startswith(spec.prefix) and tex.file and not tex.file.startswith("/"):
+            tex.file = texdir + tex.file
     m = scene.compile()
     xml = scene.to_xml().replace(absdir, f"../robot/{spec.name}/{child.meshdir or '.'}/".replace("/./", "/"))
+    xml = xml.replace(texdir, f"../robot/{spec.name}/{child.texturedir or child.meshdir or '.'}/".replace("/./", "/"))
     (sim / f"robot_scene_{spec.name}.xml").write_text(xml)
     (sim / "robot_scene.xml").write_text(xml)
     return m

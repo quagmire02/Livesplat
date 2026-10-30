@@ -16,6 +16,7 @@ gripper:
   open: 0.057
   closed: 0.021
   max_opening_m: 0.075                      # probe: 90 mm geom-centre gap; pad faces ~75 mm
+  kp: 1500                                  # Menagerie default is very soft (~1 N grip); ~10-15 N like the real servo
   palm_clearance_m: 0.04
 base_gap_m: -0.06                           # clamped on the table edge (ALOHA style)
 side_min_height_m: 0.03

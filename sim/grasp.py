@@ -24,6 +24,9 @@ class Arm:
         self.arm = np.array([m.actuator(spec.prefix + n).id for n in spec.arm_actuators])
         self.grip = m.actuator(spec.prefix + spec.gripper_actuator).id
         self.qadr = arm_index(m, spec)[0]
+        if spec.grip_kp > 0:                                    # position actuator: force = kp * (ctrl - q)
+            m.actuator_gainprm[self.grip, 0] = spec.grip_kp
+            m.actuator_biasprm[self.grip, 1] = -spec.grip_kp
 
     def reset(self):
         d = mujoco.MjData(self.m)

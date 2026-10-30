@@ -81,6 +81,7 @@ def run(run_dir, robot, quick=False):
     for sf in scales:
         sim = package(run_dir, mpu * sf, f"{round(mpu * sf * 1000)}")
         spec, meta, rows, arm, b = _setup(sim, robot, base)
+        res.setdefault("body_names", {o["body"]: o["name"] for o in meta["objects"]})
         if base is None:
             base = b
             res["base"] = {"pos_m": [round(float(v), 3) for v in b[0]], "yaw_deg": round(float(np.degrees(b[1])), 1)}
@@ -116,7 +117,19 @@ def run(run_dir, robot, quick=False):
     return res
 
 
+def _readable(text, res):
+    """obj_2 / ['obj_1', 'world'] -> object names and 'the table'."""
+    import re
+    names = {**res.get("body_names", {}), "world": "the table"}
+    text = re.sub(r"[\[\]']", "", str(text))
+    return re.sub(r"\b(obj_\d+|world)\b", lambda m: names.get(m.group(1), m.group(1)), text)
+
+
 def _suggest(rec, res):
+    return _readable(_suggest_raw(rec, res), res)
+
+
+def _suggest_raw(rec, res):
     top, side = rec["modes"].get("top", {}), rec["modes"].get("side", {})
     r0 = rec["reach"][0]
     if rec["best_rate"] >= 0.9:
