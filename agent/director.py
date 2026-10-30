@@ -54,10 +54,9 @@ def _tools_text():
 
 
 def _parse(text):
-    try:
-        return json.loads(text[text.index("{"): text.rindex("}") + 1])
-    except ValueError:
-        return None
+    from backends.jsonfix import loads
+    j = loads(text)
+    return j if isinstance(j, dict) else None
 
 
 def _chat(msgs, provider, max_tokens):

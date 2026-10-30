@@ -78,9 +78,9 @@ def main():
         r = client.spark_chat([{"role": "user", "content": [{"type": "text", "text": PROMPT}] + [
             {"type": "image_url", "image_url": {"url": client.image_data_uri(im)}} for im in views]}], max_tokens=3000)
         text = ((r.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-        try:
-            j = json.loads(text[text.index("{"): text.rindex("}") + 1])
-        except ValueError:
+        from backends.jsonfix import loads
+        j = loads(text)
+        if not isinstance(j, dict) or "name" not in j:
             print(f"obj {k}: could not parse: {text[:200]!r}")
             continue
         brand = str(j.get("brand") or "").strip()

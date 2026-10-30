@@ -45,8 +45,11 @@ def _crop(points_w, f, W, H, pad=0.2):
 def _parse_json(r):
     if r.get("_status", 200) != 200:
         raise RuntimeError(f"Muse error: {str(r)[:200]}")
-    c = r["choices"][0]["message"].get("content") or ""
-    return json.loads(c[c.index("{"): c.rindex("}") + 1])
+    from backends.jsonfix import reply_json
+    j = reply_json(r)
+    if j is None:
+        raise RuntimeError("Muse returned no usable JSON")
+    return j
 
 
 def explain(points_w, name, question, cams, cache_only=False, n_views=4, n_sam=2, known=None):

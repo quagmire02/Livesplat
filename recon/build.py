@@ -1,11 +1,13 @@
 """One command from video to LiveSplat scene, with quality presets and automatic fallback.
 
 Run (WSL, LiveSplat venv):
-    python -m recon.build <video> <name> [--quality low|medium|high] [--dry-run]
+    LIVESPLAT_ALLOW_META=1 python -m recon.build <video> <name> [--quality low|medium|high] [--dry-run]
+                                                [--no-tag] [--no-models]
 
 Steps: stage 1 (ThriftSplat cloud) -> global SfM -> splat training -> export -> segment
-       -> object refinement at native resolution (medium/high, only if the video has more
-          pixels than the base training used; otherwise it cannot add detail).
+       -> Muse + SAM tagging (names, properties, scale) -> object refinement at native resolution
+          (medium/high, only if the video has more pixels than the base training used)
+       -> Hunyuan3D-2mv models per object (also the collision shapes). Close the viewer first (RAM).
 Fallback: the requested preset is lowered until its VRAM and RAM estimates fit; if training
 still fails with out-of-memory, the next lower preset is tried.
 """
@@ -109,8 +111,9 @@ def main():
     ap.add_argument("name")
     ap.add_argument("--quality", choices=ORDER, default="low")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--tag", action="store_true", help="run Spark + SAM tagging (cache-only unless an API round is enabled)")
-    ap.add_argument("--no-tag", action="store_true", help="skip tagging (default; retained for existing scripts)")
+    ap.add_argument("--tag", action="store_true", help="(default now) Muse + SAM tagging; needs LIVESPLAT_ALLOW_META=1")
+    ap.add_argument("--no-tag", action="store_true", help="skip tagging")
+    ap.add_argument("--no-models", action="store_true", help="skip the Hunyuan 3D models (they also give collision shapes)")
     a = ap.parse_args()
 
     vw, vh, dur = probe_video(a.video)
@@ -147,15 +150,19 @@ def main():
     py = sys.executable
     if sh([py, "-m", "segment.run", run], log):
         sys.exit(f"segmentation failed, see {log}")
-    if a.tag and not a.no_tag:
+    tagged = False
+    if not a.no_tag:                                           # Muse names/properties/scale + SAM labels
         if sh([py, "-m", "agent.tag", run], log):
             print(f"  tagging failed; the scene works without tags. See {log}")
-        elif sh([py, "-m", "segment.complete3d", run, "--res", "256"], log):   # collision meshes (TripoSR)
-            print(f"  3D completion failed; collision uses the scan hull. See {log}")
+        else:
+            tagged = True
     if p["refine"]:
         rc = sh(["bash", "recon/refine.sh", run, "--iters", p["refine"], "--width", p["refine_width"]], log)
         if rc:
             print(f"  refinement failed (rc {rc}); keeping the base splat. See {log}")
+    if tagged and not a.no_models:                             # Hunyuan3D-2mv models (+ collision shapes)
+        if sh([py, "-m", "viewer.model3d", "build", run], log):
+            print(f"  3D models failed; collision uses the scan hull, 3D model button unavailable. See {log}")
     print(f"done: {name} in {(time.time() - t0) / 60:.0f} min -> {run}")
 
 

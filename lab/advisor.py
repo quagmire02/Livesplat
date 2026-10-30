@@ -26,10 +26,11 @@ MENU = """Allowed changes (pick the ones most likely to help, max 3, no duplicat
 def _muse(content, tokens=2500):
     from backends.meta import client
     r = client.spark_chat([{"role": "user", "content": content}], max_tokens=tokens, extra={"reasoning_effort": "low"})
-    c = (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-    try:
-        return json.loads(c[c.index("{"): c.rindex("}") + 1])
-    except ValueError:
+    from backends.jsonfix import reply_json
+    j = reply_json(r)
+    if isinstance(j, dict):
+        return j
+    else:
         return {}
 
 

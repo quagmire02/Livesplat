@@ -42,6 +42,34 @@ def image_data_uri(pil_image, fmt="JPEG", quality=90) -> str:
     return f"data:image/{fmt.lower()};base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+IMAGE_EST_USD = 0.04             # Muse Image price is not in our notes: conservative per-image estimate
+
+
+def muse_image(prompt: str, refs: list, *, cache_only=False):
+    """Muse Image (POST /images/edits) conditioned on reference PIL images. Returns a PIL image or None."""
+    from PIL import Image
+    req = {"model": "muse-image-1.0", "prompt": prompt, "n": 1,
+           "images": [{"image_url": image_data_uri(im, quality=88)} for im in refs[:4]]}
+    hit = cache.get(req)
+    if hit is None:
+        if cache_only:
+            raise PermissionRequired("Muse Image response is not cached; this operation is cache-only.")
+        require_permission()
+        budget.check(IMAGE_EST_USD, "muse-image edit")
+        try:
+            r = requests.post(f"{BASE}/images/edits", headers=_headers(), json=req, timeout=300)
+        finally:
+            budget.record(IMAGE_EST_USD, "muse-image edit")
+        if r.status_code != 200:
+            raise RuntimeError(f"Muse Image error {r.status_code}: {r.text[:200]}")
+        hit = r.json()
+        cache.put(req, hit, {"model": "muse-image-1.0"})
+    data = (hit.get("data") or [{}])[0]
+    if not data.get("b64_json"):
+        return None
+    return Image.open(io.BytesIO(base64.b64decode(data["b64_json"]))).convert("RGB")
+
+
 def sam31_image(prompt: str, image_uri: str, *, cache_only=False) -> dict:
     """One SAM 3.1 image call. Returns {'status', 'raw'} with the raw stream text."""
     req = {"model": "sam-3.1", "stream": True, "input": [{

@@ -727,7 +727,9 @@ def main():
         "server": server, "ctrl": ctrl, "world": world, "lock": lock, "cam": cam, "radius": r,
         "mpu": __import__("measure.scale", fromlist=["load"]).load(a.run_dir).get("metres_per_unit") or 0.6,
         "say": lambda t, n: say(t, n), "notify": lambda s: setattr(log, "content", s), "panel": explain_html,
-        "add_splat": lambda name, arr: add_splat(server, name, arr)})
+        "add_splat": lambda name, arr: add_splat(server, name, arr),
+        "crops": guide_crops, "illus_panel": server.gui.add_html(""),
+        "render": lambda: next(iter(server.get_clients().values())).get_render(height=480, width=720, timeout=20)})
 
     def start_lesson(question):
         """'How do I play with these?' -> a visual lesson drawn on the live scene (viewer.lesson)."""

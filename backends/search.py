@@ -98,11 +98,8 @@ def similar(name, query, text="unknown", cache_only=False):
     if results:
         r = client.spark_chat([{"role": "user", "content": SIMILAR.format(name=name, text=text, results=listing)}],
                               max_tokens=1500, cache_only=cache_only, extra={"reasoning_effort": "minimal"})
-        c = (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        try:
-            j = json.loads(c[c.index("{"): c.rindex("}") + 1])
-        except ValueError:
-            j = {}
+        from backends.jsonfix import reply_json
+        j = reply_json(r, cache_only=cache_only) or {}
     same = [results[i] for i in j.get("same", []) if isinstance(i, int) and 0 <= i < len(results)][:5]
     if not same:
         same = results[:4]                                    # fall back to the top search results
@@ -133,11 +130,10 @@ def market(name, query, provider="baseten", cache_only=False):
         r = client.spark_chat(msgs, max_tokens=4000, cache_only=cache_only)
     if r.get("_status", 200) != 200:
         raise RuntimeError(f"Muse error: {str(r)[:200]}")
-    c = r["choices"][0]["message"].get("content") or ""
-    try:
-        j = json.loads(c[c.index("{"): c.rindex("}") + 1])
-    except ValueError:
-        raise RuntimeError("Muse reply was not JSON") from None
+    from backends.jsonfix import reply_json
+    j = reply_json(r, cache_only=cache_only)
+    if j is None:
+        raise RuntimeError("Muse reply was not JSON")
     urls = {x["url"]: x for x in results}
     listings = []
     for l in j.get("listings") or []:

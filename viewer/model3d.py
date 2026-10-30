@@ -73,9 +73,9 @@ def _front(cands, name, W, H):
         im.thumbnail((384, 384))
         content.append({"type": "image_url", "image_url": {"url": client.image_data_uri(im, quality=85)}})
     r = client.spark_chat([{"role": "user", "content": content}], max_tokens=1500, extra={"reasoning_effort": "low"})
-    txt = (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    from backends.jsonfix import reply_json
     try:
-        i = int(json.loads(txt[txt.index("{"): txt.rindex("}") + 1])["front"])
+        i = int((reply_json(r) or {})["front"])
         return pick[i]["az"] if 0 <= i < len(pick) else pick[0]["az"]
     except (ValueError, KeyError, TypeError):
         return max(pick, key=lambda c: c["size"])["az"]
@@ -185,6 +185,9 @@ def paint(run, k, src="thrift_sfm"):
     out = trimesh.Trimesh(v @ np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]]).T, mesh.faces,     # back to y-up
                           vertex_colors=np.c_[col, np.full(len(col), 255, np.uint8)], process=False)
     out.export(d / "model.glb")
+    # The complete shape is also the physics collision shape (viewer.app reads gen/obj_<id>.obj, object frame z-up,
+    # with a flat base when it stands alone); it replaces the old TripoSR mesh.
+    trimesh.Trimesh(v, mesh.faces, process=False).export(Path(run) / "gen" / f"obj_{k}.obj")
     rep = {**info, "vertices": int(len(v)), "seen_by_photos": round(float(seen.mean()), 3)}
     (d / "paint.json").write_text(json.dumps(rep, indent=1))
     print(f"obj {k}: {len(v):,} verts, {seen.mean() * 100:.0f}% coloured from photos, chamfer {info['chamfer']:.4f}",
