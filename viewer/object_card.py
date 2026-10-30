@@ -124,6 +124,7 @@ class ObjectCards:
                                               'picks listings and prices from the results. Needs an analysis first.')
         self.market, self.notify = {}, None                 # notify(text): bottom notification, set by viewer.app
         self.left = 12                                      # px; viewer.app moves it right while Explain is open
+        self.known = {}                                     # saved analyses (gen/card_k.json), set by viewer.app
         self.market_btn.on_click(lambda _: self.start_market())
         self.iso, self.repair = {}, None                    # repair panel is attached by viewer.app
         self.isolate.on_click(lambda _: self.start_isolate())
@@ -191,7 +192,8 @@ class ObjectCards:
             return
         self.selected = k
         label = self.ctrl.label(k)
-        card = self.cards.get(k) or {'name': label, 'search_query': label}
+        card = self.cards.get(k) or self.known.get(k) or {'name': label, 'search_query': label}
+        card = {'name': card.get('name') or label, 'search_query': card.get('search_query') or label}
         if not self.busy.acquire(blocking=False):
             return
         provider = 'baseten' if os.environ.get('LIVESPLAT_ALLOW_BASETEN') == '1' else 'meta'

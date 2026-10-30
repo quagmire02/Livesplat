@@ -494,7 +494,8 @@ def main():
         def work():
             try:
                 o = ctrl.obj(k)
-                res = explain(body_world(sc, o), ctrl.label(k), question, load_cameras(Path(a.run_dir) / a.src))
+                res = explain(body_world(sc, o), ctrl.label(k), question, load_cameras(Path(a.run_dir) / a.src),
+                              known=known.get(k))
                 if gen != show["gen"]:
                     return
                 with lock:
@@ -712,6 +713,22 @@ def main():
         cards = ObjectCards(server, sc, ctrl, a.run_dir, a.src, allow_meta, reference_sidebar, confirm_reference_name)
         cards.repair = repair                               # SAM-suggested fixes go through the repair workspace
         cards.notify = lambda s: setattr(log, "content", s)
+    known = {}                     # earlier Muse analyses (gen/card_k.json): brand text, better names, search words
+    for o in sc.objects:
+        p = Path(a.run_dir) / "gen" / f"card_{o['id']}.json"
+        try:
+            c = json.loads(p.read_text()) if p.exists() else None
+        except ValueError:
+            c = None
+        if not c or not c.get("name"):
+            continue
+        known[o["id"]] = c
+        text = str(c.get("visible_text", "")).strip()
+        brand = text if text and text.lower() != "unknown" and len(text.split()) <= 2 else ""
+        nice = (f"{brand} {c['name']}" if brand and brand.lower() not in c["name"].lower() else c["name"]).lower()
+        if nice not in ctrl.names[o["id"]]:
+            ctrl.names[o["id"]].insert(0, nice)               # shown everywhere; old names still resolve
+    cards.known = known
 
     @server.scene.on_click()
     def _(ev):

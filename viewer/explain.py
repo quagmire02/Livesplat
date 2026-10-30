@@ -18,6 +18,7 @@ from segment.sam_vote import zbuffer_visible
 from viewer.sam_isolate import _views
 
 PROMPT = '''The user is looking at a real object on their table (scanned name: "{name}"). Their question: "{question}".
+{hint}
 You see {n} close-up photos of it from different sides (photo 0 to {last}). Answer like a friendly expert standing
 next to them and pointing at its parts. Be brief: every sentence under 15 words. Return JSON only:
 {{"title": "what it is, short", "front_photo": index of the photo that shows the FRONT (brand, main label, controls),
@@ -48,7 +49,7 @@ def _parse_json(r):
     return json.loads(c[c.index("{"): c.rindex("}") + 1])
 
 
-def explain(points_w, name, question, cams, cache_only=False, n_views=4, n_sam=2):
+def explain(points_w, name, question, cams, cache_only=False, n_views=4, n_sam=2, known=None):
     """points_w: object splat centres in the world frame (object order). Returns a dict with the answer,
     parts (name, say, ids = object splat indices on the part) and a diagram image (front photo)."""
     W, H = cams["width"], cams["height"]
@@ -59,8 +60,12 @@ def explain(points_w, name, question, cams, cache_only=False, n_views=4, n_sam=2
         views.append((f, box, img))
     if not views:
         raise ValueError("no clear photo of this object")
+    hint = ""
+    if known:                                                 # an earlier, closer look (object card)
+        hint = (f'An earlier close look identified it as "{known.get("name", "")}" with readable text '
+                f'"{known.get("visible_text", "unknown")}". Use the brand/product name if it fits these photos.')
     content = [{"type": "text", "text": PROMPT.format(name=name, question=question or "what is this?", n=len(views),
-                                                      last=len(views) - 1)}]
+                                                      last=len(views) - 1, hint=hint)}]
     small = [v[2].copy() for v in views]
     for s in small:
         s.thumbnail((640, 640))                               # smaller upload for Muse only
