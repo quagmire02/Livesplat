@@ -14,8 +14,11 @@ from PIL import Image
 
 from scene_io.thrift import load_cameras, project
 
-PROMPT = ("This crop shows one object on a table (centre of the image). Reply with JSON only: "
-          '{"name": short common name, "aliases": [2-4 other words people might use], '
+PROMPT = ("These crops show ONE object on a table from different sides (centre of each image). Reply with JSON only: "
+          '{"brand": brand name if you can read it on the object, else "", '
+          '"name": specific product type, e.g. "aerosol deodorant spray" not "spray can", '
+          '"visible_text": main readable text on it or "unknown", '
+          '"aliases": [2-4 other words people might use], '
           '"material": str, "hollow": bool, "mass_kg": float (the real object), '
           '"friction": float 0-1.5 against wood, "bounce": float 0-0.9, '
           '"sam_prompt": 1-3 word concrete noun phrase to segment this object (e.g. "spray can"), '
@@ -51,6 +54,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
     ap.add_argument("--src", default="thrift_sfm")
+    ap.add_argument("--names-only", action="store_true",
+                    help="refresh names.json (+ brand/visible_text in props.json); keep masses, friction and scale")
     a = ap.parse_args()
     from backends.meta import budget, client
     from scene_io import splat
@@ -68,22 +73,37 @@ def main():
             print(f"obj {k}: no clean view, skipped")
             continue
         crop.save(run / f"crop_obj{k}.jpg", quality=90)
-        r = client.spark_chat([{"role": "user", "content": [
-            {"type": "text", "text": PROMPT},
-            {"type": "image_url", "image_url": {"url": client.image_data_uri(crop)}}]}], max_tokens=2000)
+        from viewer.object_card import source_crops
+        views = [im for _, im in source_crops(raw["means"][m], cams, count=3)] or [crop]   # 3 sides: brand + type
+        r = client.spark_chat([{"role": "user", "content": [{"type": "text", "text": PROMPT}] + [
+            {"type": "image_url", "image_url": {"url": client.image_data_uri(im)}} for im in views]}], max_tokens=3000)
         text = ((r.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
         try:
             j = json.loads(text[text.index("{"): text.rindex("}") + 1])
         except ValueError:
             print(f"obj {k}: could not parse: {text[:200]!r}")
             continue
-        names[str(k)] = [j["name"].lower()] + [s.lower() for s in j.get("aliases", [])]
+        brand = str(j.get("brand") or "").strip()
+        text = str(j.get("visible_text") or "").strip()
+        if not brand and text.lower() != "unknown" and 0 < len(text.split()) <= 2:
+            brand = text                                       # short readable word on it, e.g. "SHIELD"
+        full = f"{brand} {j['name']}" if brand and brand.lower() not in j["name"].lower() else j["name"]
+        extra = [text.lower()] if text.lower() not in ("", "unknown") and len(text.split()) <= 3 else []   # "shield"
+        names[str(k)] = list(dict.fromkeys([full.lower(), j["name"].lower()] + [s.lower() for s in j.get("aliases", [])]
+                                           + extra))
         props[str(k)] = {x: j[x] for x in ("material", "hollow", "mass_kg", "friction", "bounce", "sam_prompt",
-                                           "real_size_cm", "size_confidence") if x in j}
+                                           "real_size_cm", "size_confidence", "brand", "visible_text") if x in j}
         P = raw["means"][m] @ T[:3, :3].T + T[:3, 3]           # object points in the table frame
         props[str(k)]["measured_height_units"] = float(np.percentile(P[:, 2], 98))
         print(f"obj {k}: {names[str(k)]} {props[str(k)]}")
     (run / "names.json").write_text(json.dumps(names, indent=1))
+    if a.names_only:
+        old = json.loads((run / "props.json").read_text()) if (run / "props.json").exists() else {}
+        for k, p in props.items():
+            old.setdefault(k, {}).update({x: p[x] for x in ("brand", "visible_text") if x in p})
+        (run / "props.json").write_text(json.dumps(old, indent=1))
+        print(f"names only; spent total ${budget.spent():.4f}")
+        return
     (run / "props.json").write_text(json.dumps(props, indent=1))
     # Automatic scale: real heights (Spark world knowledge) / measured heights; cross-checked between objects.
     ratios = {k: p["real_size_cm"][2] / 100 / p["measured_height_units"] for k, p in props.items()

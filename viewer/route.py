@@ -1,24 +1,43 @@
-"""Fast routing of typed questions (no model call). Anything not matched goes to the Muse planner."""
+"""Fast routing of typed questions (no model call). Anything not matched goes to the Muse planner.
+
+One message can ask for several things ("what is this and find me similar ones"): route() returns every mode
+that matches, in a fixed order. The object can be the selection or named in the text (find_object).
+"""
 import re
 
 SIMILAR = re.compile(r"\b(similar|same (one|product|thing)|where (can|do|could|should) (i|we) (buy|get|find)|"
-                     r"buy (this|it|one)|find (this|it|one)|(pictures?|photos?|images?) of (this|it|that)|"
+                     r"buy (this|it|one)|find (this|it|one)|(pictures?|photos?|images?) of|"
                      r"show me (some )?(pictures|photos|images)|alternatives?|something like (this|it)|"
-                     r"other (brands|options))\b")
+                     r"other (brands|options)|find me)\b")
 EXPLAIN = re.compile(r"\b(what('?s| is) (this|it|that)( thing)?|what am i looking at|how (do|can|should) (i|you) use|"
                      r"how to use|how does (this|it) work|explain|show me how|tell me (about|more)|"
                      r"what does (this|it) do|what('?s| is) (this|it) for|identify)\b")
 GUIDE = re.compile(r"(how (do|can|would|should) (i|we|you)|how to|step by step|teach me|help me|walk me through|"
                    r"what can i (make|do) with)\b")
+USE_IT = re.compile(r"how (do|can|should) (i|you) use|how to use")
 
 
-def route(text, selected):
-    """'similar' | 'explain' | 'guide' | None (= ask the Muse planner). selected: an object is selected."""
+def route(text, has_object):
+    """Modes in order: 'explain', 'similar', 'guide'. [] = ask the Muse planner.
+    has_object: an object is selected or named in the text."""
     q = " ".join(text.lower().split())
-    if selected and SIMILAR.search(q):
-        return "similar"
-    if selected and EXPLAIN.search(q):
-        return "explain"
-    if GUIDE.match(q) and not (selected and re.match(r"how (do|can|should) (i|you) use", q)):
-        return "guide"
-    return None
+    modes = []
+    if has_object and EXPLAIN.search(q):
+        modes.append("explain")
+    if has_object and SIMILAR.search(q):
+        modes.append("similar")
+    if GUIDE.match(q) and not (has_object and USE_IT.match(q)):
+        modes.append("guide")
+    return modes
+
+
+def find_object(text, names):
+    """Object id whose name/alias appears in the text (longest match wins), or None. names: {id: [names]}."""
+    q = " " + " ".join(re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()) + " "
+    best, best_len = None, 0
+    for k, ns in names.items():
+        for n in ns:
+            n = n.lower().strip()
+            if len(n) > 3 and not n.isdigit() and f" {n} " in q and len(n) > best_len:
+                best, best_len = k, len(n)
+    return best

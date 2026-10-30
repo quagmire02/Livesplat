@@ -325,16 +325,16 @@ def main():
         if not text.strip():
             return
         # Questions go straight to their mode (no routing call = faster); everything else goes to the planner.
-        from viewer.route import route
-        mode = route(text, ui["sel"] is not None)
-        if mode == "similar":
-            start_similar(ui["sel"])
-            return
-        if mode == "explain":
-            start_explain(ui["sel"], text)
-            return
-        if mode == "guide":
-            start_guide(text)
+        from viewer.route import find_object, route
+        target = ui["sel"] if ui["sel"] is not None else find_object(text, ctrl.names)
+        modes = route(text, target is not None)
+        if modes:
+            if "guide" in modes and len(modes) == 1:
+                start_guide(text)
+            if "explain" in modes:
+                start_explain(target, text)
+            if "similar" in modes:
+                start_similar(target, beside="explain" in modes)
             return
         if show["k"] is not None or show["nodes"]:
             end_show()                                    # a new command closes the explanation/guide
@@ -417,6 +417,7 @@ def main():
 
     # ---- Explain mode: bring the object up, point at its parts, talk ------------------
     explain_html = server.gui.add_html("")
+    similar_html = server.gui.add_html("")
     show = {"k": None, "pose": None, "paused": True, "gen": 0, "nodes": []}
 
     # Speech runs in the browser (free Web Speech API). lsSay tries the nicest English voices first and falls back
@@ -453,6 +454,7 @@ def main():
         show["nodes"] = []
         explain_html.content = ('<img alt="" style="display:none" src="x:stop" '
                                 'onerror="try{window.lsN=(window.lsN||0)+1;speechSynthesis.cancel()}catch(e){}">')
+        similar_html.content = ""
         if cards.left != 12:
             cards.left = 12
             cards.render()
@@ -550,19 +552,25 @@ def main():
                 log.content = f"Could not explain that: {e}"
         threading.Thread(target=work, daemon=True).start()
 
-    def start_similar(k):
-        """Same product (shop/info links + pictures) and similar products, from free web search."""
+    def start_similar(k, beside=False):
+        """Same product (shop/info links + pictures) and similar products, from free web search.
+        beside=True: shown next to an explanation started by the same message (does not close it)."""
         import html
         from urllib.parse import quote_plus
         from backends.search import similar
         if not allow_meta:
             log.content = "This needs Muse (start the viewer with LIVESPLAT_ALLOW_META=1)."
             return
-        end_show()
-        show["gen"] += 1
+        if not beside:
+            end_show()
+            show["gen"] += 1
         gen = show["gen"]
-        c = known.get(k, {})
-        query = c.get("search_query") or ctrl.label(k)
+        pp = Path(a.run_dir) / "props.json"
+        c = json.loads(pp.read_text()).get(str(k), {}) if pp.exists() else {}
+        query = ctrl.label(k)                                  # Muse tag name (brand + product type)
+        text = str(c.get("visible_text", "")).strip()
+        if text and text.lower() != "unknown" and text.lower() not in query.lower():
+            query += f" {text}"
         log.content = f"Searching the web for {ctrl.label(k)}…"
 
         def work():
@@ -579,13 +587,13 @@ def main():
                 alts = "".join(f'<li><a style="color:#ff8c42" href="https://duckduckgo.com/?q={quote_plus(s["name"])}" '
                                f'target="_blank" rel="noopener">{esc(s["name"])}</a> <small>{esc(s["why"])}</small></li>'
                                for s in res["similar"])
-                explain_html.content = (
-                    '<aside style="position:fixed;left:12px;top:60px;width:300px;max-height:80vh;overflow:auto;'
-                    'background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;border-radius:10px;'
-                    'z-index:25;font-size:13px;line-height:1.45">'
+                similar_html.content = (
+                    f'<aside style="position:fixed;left:{304 if beside else 12}px;top:60px;width:300px;max-height:80vh;'
+                    'overflow:auto;background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;'
+                    'border-radius:10px;z-index:26;font-size:13px;line-height:1.45">'
                     f'<b style="font-size:15px">{esc(ctrl.label(k).capitalize())}</b><p>{esc(res["summary"])}</p>'
                     f'<div style="display:flex;flex-wrap:wrap;gap:6px">{pics}</div>'
-                    + (f'<p><b>This product</b></p><ul style="padding-left:18px">{same}</ul>' if same else "")
+                    + (f'<p><b>Possible matches</b></p><ul style="padding-left:18px">{same}</ul>' if same else "")
                     + (f'<p><b>Similar</b></p><ul style="padding-left:18px">{alts}</ul>' if alts else "")
                     + f'<small>Web search for "{esc(query)}". Links open in a new tab.</small></aside>')
                 log.content = f"Found {len(res['same'])} links and {len(res['pictures'])} pictures"
@@ -771,12 +779,7 @@ def main():
             c = None
         if not c or not c.get("name"):
             continue
-        known[o["id"]] = c
-        text = str(c.get("visible_text", "")).strip()
-        brand = text if text and text.lower() != "unknown" and len(text.split()) <= 2 else ""
-        nice = (f"{brand} {c['name']}" if brand and brand.lower() not in c["name"].lower() else c["name"]).lower()
-        if nice not in ctrl.names[o["id"]]:
-            ctrl.names[o["id"]].insert(0, nice)               # shown everywhere; old names still resolve
+        known[o["id"]] = c                                    # names come from names.json (agent.properties, Muse)
     cards.known = known
 
     @server.scene.on_click()
