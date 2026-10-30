@@ -39,7 +39,8 @@ def run_meta(text, ctrl, max_rounds=3, default=None, cache_only=False, provider=
                 from backends import baseten
                 r = baseten.chat(msgs, tools=TOOLS, max_tokens=3000, cache_only=cache_only)
             else:
-                r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000, cache_only=cache_only)
+                r = client.spark_chat(msgs, tools=TOOLS, max_tokens=2000, cache_only=cache_only,
+                                      extra={"reasoning_effort": "low"})     # ~2x faster, same tool choices
         except client.PermissionRequired as e:
             return done, str(e)
         if r.get("_status") != 200:

@@ -56,6 +56,9 @@ TOOLS = [
     _fn("explain", "Show and tell about one object: bring it to the user, point at its parts on the 3D object and "
         "explain what it is or how to use it. Use for 'what is this', 'how do I use', 'show me'.",
         {"obj": _OBJ, "question": {"type": "string", "description": "the user's question"}}, ["obj"]),
+    _fn("guide", "Step-by-step how-to that uses several objects on the table (recipes, assembly, 'how do I make X'); "
+        "points at each object as it is needed.", {"task": {"type": "string", "description": "the user's request"}},
+        ["task"]),
     _fn("simulate", "Predict without showing: apply actions, run physics for some seconds, report what happens.",
         {"actions": {"type": "array", "items": {"type": "object"}, "description": "list of {name, args} action calls"},
          "seconds": {"type": "number", "description": "default 2"}}, ["actions"]),

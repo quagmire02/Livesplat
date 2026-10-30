@@ -123,6 +123,7 @@ class ObjectCards:
                                          hint='Free web search (DuckDuckGo or SearXNG) on the Muse search words, then Muse '
                                               'picks listings and prices from the results. Needs an analysis first.')
         self.market, self.notify = {}, None                 # notify(text): bottom notification, set by viewer.app
+        self.left = 12                                      # px; viewer.app moves it right while Explain is open
         self.market_btn.on_click(lambda _: self.start_market())
         self.iso, self.repair = {}, None                    # repair panel is attached by viewer.app
         self.isolate.on_click(lambda _: self.start_isolate())
@@ -332,6 +333,6 @@ class ObjectCards:
         else:
             body += '<small>Original source crops. Use "Search the market" for prices and competitors.</small>'
         self.panel.content = ('<style>@media(max-width:900px){.ls-references{position:relative!important;left:auto!important;top:auto!important;width:100%!important;max-height:45vh!important}}</style>'
-            '<aside class="ls-references" style="position:fixed;left:12px;top:60px;width:260px;max-height:85vh;overflow:auto;'
+            f'<aside class="ls-references" style="position:fixed;left:{self.left}px;top:60px;width:260px;max-height:85vh;overflow:auto;'
             'background:#242424;color:#eee;padding:14px;border:1px solid #555;border-radius:8px;z-index:20;font-size:12px;pointer-events:auto">'
             + body + '</aside>')

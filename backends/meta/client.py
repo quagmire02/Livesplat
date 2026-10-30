@@ -73,9 +73,10 @@ def sam31_image(prompt: str, image_uri: str, *, cache_only=False) -> dict:
 
 
 def spark_chat(messages: list, tools: list | None = None, max_tokens: int = 300,
-               model: str = "muse-spark-1.3", *, cache_only=False) -> dict:
-    """One Spark chat call. Returns the parsed JSON response (or error dict)."""
-    req = {"model": model, "messages": messages, "max_tokens": max_tokens}
+               model: str = "muse-spark-1.3", *, cache_only=False, extra: dict | None = None) -> dict:
+    """One Spark chat call. Returns the parsed JSON response (or error dict).
+    extra: additional request fields (e.g. reasoning_effort); omitted from the request when None."""
+    req = {"model": model, "messages": messages, "max_tokens": max_tokens, **(extra or {})}
     if tools:
         req["tools"] = tools
     hit = cache.get(req)

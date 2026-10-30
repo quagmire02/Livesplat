@@ -2,6 +2,20 @@
 
 Updated: Oct 30.
 
+## Explain fixes + Guide mode — Oct 30 (evening)
+- Muse `reasoning_effort` works on the Meta API: default 6.8 s, low 4.0 s, minimal 1.4 s (`client.spark_chat(extra=...)`). Planner and Explain/Guide use low.
+- Explain:
+  - Muse picks the front photo (`front_photo`), which now drives the diagram, the turn-to-face and SAM.
+  - SAM runs in parallel with a second phrasing per part (`sam_alt`). The most confident mask on the object wins; a "part" mask covering the whole object is rejected.
+  - Measured 5–13 s, down from about 30.
+  - The object floats in view, never inside the table. The voice is at 0.9 volume and prefers natural/neural/Google English voices. The price panel moves beside the Explain panel.
+- Typed questions skip routing:
+  - Selected object + "what is this / how do I use / explain" goes to Explain.
+  - "How do I… / how to… / step by step" goes to Guide.
+  - The `guide` tool also exists for Muse.
+- Guide (`viewer/explain.py: guide`): one photo per object goes to Muse, which returns steps that point at objects plus "not on the table" items. The viewer highlights and labels each object while its step is spoken. Headless test: 5 s, sensible steps.
+- Table view detail: the same SH view colour as the objects, for background splats within 1.3× the table radius, refreshed when the camera settles. Startup checked; the visual result has not been checked in a browser.
+
 ## Simple UI + Explain mode — Oct 30 (later)
 - User feedback: too many sliders/options; the Director button felt odd and slow. Now:
   - The main panel is one "ask or tell" box, a send button, and buttons for the selected object (explain, price, put back). Everything else is in a collapsed "More tools".

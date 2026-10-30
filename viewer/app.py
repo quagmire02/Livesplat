@@ -72,6 +72,8 @@ class Scene:
             bg_idx = bg_idx[~np.isin(bg_idx, np.load(rm))]
         self.bg_idx = bg_idx
         self.bg = splat.activate(splat.subset(raw, bg_idx))
+        self.bg_sh = ({"sh0": raw["sh0"][bg_idx], "shN": raw["shN"][bg_idx].astype(np.float16)}   # table view detail
+                      if "shN" in raw else None)
         self.floor_z = self._floor(m, raw["opacity"], labels, radial)
 
         self.objects = []
@@ -319,8 +321,21 @@ def main():
     from sim.view import SimMode
 
     def run_command(text):
+        import re
         if not text.strip():
             return
+        q = text.lower().strip()
+        # Questions go straight to their mode (no routing call = faster): about the selected object -> explain,
+        # a how-to with the things on the table -> guide.
+        if ui["sel"] is not None and re.search(r"\b(what('?s| is) (this|it|that)|how (do|can|should) i use|how to use|"
+                                               r"explain|show me|tell me about|what does (this|it) do)\b", q):
+            start_explain(ui["sel"], text)
+            return
+        if re.match(r"(how (do|can|would|should) (i|we|you)|how to|step by step|teach me|help me)\b", q):
+            start_guide(text)
+            return
+        if show["k"] is not None or show["nodes"]:
+            end_show()                                    # a new command closes the explanation/guide
         if planner and planner.value in ("meta", "baseten", "cached"):
             log.content = "Thinking…"
         with lock:
@@ -338,7 +353,8 @@ def main():
             if any(c["name"] in ("push", "slide", "drop", "throw", "stack") for c in changes):
                 ui["paused"] = False
             sync_mode()
-        handoff = [(c, res) for c, res in results if c["name"] in ("plan_goal", "explain") and not res.startswith("error:")]
+        handoff = [(c, res) for c, res in results if c["name"] in ("plan_goal", "explain", "guide")
+                   and not res.startswith("error:")]
         lines = [f"{text}"] + [f"• {res}" for c, res in results if (c, res) not in handoff]
         if note and not handoff:
             lines.append(f"• {note}")
@@ -350,6 +366,8 @@ def main():
         for c, _res in handoff:
             if c["name"] == "plan_goal":
                 start_director(c["args"]["goal"])
+            elif c["name"] == "guide":
+                start_guide(c["args"]["task"])
             else:
                 start_explain(ctrl.resolve(c["args"]["obj"]), c["args"].get("question", text))
 
@@ -402,8 +420,12 @@ def main():
         js = json.dumps(text).replace('"', "&quot;")
         toast_html.content = ""
         explain_html.content = explain_html.content.split("<!--say-->")[0] + (
-            f'<!--say--><img alt="" style="display:none" src="x:{n}" onerror="try{{speechSynthesis.cancel();'
-            f'speechSynthesis.speak(new SpeechSynthesisUtterance({js}))}}catch(e){{}}">')
+            f'<!--say--><img alt="" style="display:none" src="x:{n}" onerror="try{{var s=speechSynthesis;s.cancel();'
+            f'var u=new SpeechSynthesisUtterance({js});u.volume=0.9;u.rate=1.0;'
+            f'var v=s.getVoices().filter(function(x){{return /^en/i.test(x.lang)}});'
+            f'u.voice=v.find(function(x){{return /natural|neural|online/i.test(x.name)}})'
+            f'||v.find(function(x){{return /google/i.test(x.name)}})||v.find(function(x){{return /samantha|aria|jenny|zira/i.test(x.name)}})||v[0]||null;'
+            f's.speak(u)}}catch(e){{}}">')
         log.content = text
 
     def end_show(restore=True):
@@ -416,6 +438,9 @@ def main():
         show["nodes"] = []
         explain_html.content = ('<img alt="" style="display:none" src="x:stop" '
                                 'onerror="try{speechSynthesis.cancel()}catch(e){}">')
+        if cards.left != 12:
+            cards.left = 12
+            cards.render()
         k = show["k"]
         if restore and k is not None and world.present(k):
             with lock:
@@ -431,7 +456,12 @@ def main():
         size = max(h, float(np.ptp(o["hull"][:, :2], 0).max()))
         fwd = cam["look"] - cam["pos"]
         fwd = fwd / max(np.linalg.norm(fwd), 1e-9)
-        pos = cam["pos"] + fwd * 3.0 * size - np.array([0, 0, 0.5 * h])
+        lift = 0.25 * h + 0.02 * r                                    # base this far above the table top
+        d = 3.0 * size
+        if fwd[2] < -1e-3:                                           # looking down: stop before the table
+            d = min(d, max(1.2 * size, (cam["pos"][2] - 0.5 * h - lift) / -fwd[2]))
+        pos = cam["pos"] + fwd * d - np.array([0, 0, 0.5 * h])
+        pos[2] = max(pos[2], lift)                                    # never inside the table
         c = sc.T[:3, :3] @ frame["c2w"][:3, 3] + sc.T[:3, 3]           # photo camera, table frame
         view, user = c - o["base"], cam["pos"] - pos
         yaw = np.arctan2(user[1], user[0]) - np.arctan2(view[1], view[0])
@@ -485,6 +515,8 @@ def main():
                     f'<img style="width:100%;border-radius:6px" src="{image_data_uri(res["diagram"])}"><ol>{items}</ol>'
                     f'<p>{html.escape(res["outro"])}</p><small>Labels found with SAM 3.1 on your own photos; '
                     'press "put back" when done.</small></aside>')
+                cards.left = 304                                # price panel goes beside this one
+                cards.render()
                 script = ([(None, res["intro"])] + [(i, q["say"]) for i, q in enumerate(res["parts"])]
                           + [(None, res["outro"])])
                 for n, (i, text) in enumerate(script):
@@ -500,6 +532,84 @@ def main():
                 import traceback
                 traceback.print_exc()
                 log.content = f"Could not explain that: {e}"
+        threading.Thread(target=work, daemon=True).start()
+
+    guide_crops = {}
+
+    def start_guide(task):
+        """'How do I make a sandwich?': steps that point at the objects on the table, one at a time."""
+        import html
+        from scene_io.thrift import load_cameras
+        from viewer.explain import guide
+        from viewer.object_card import source_crops
+        if not allow_meta:
+            log.content = "Guides need Muse (start the viewer with LIVESPLAT_ALLOW_META=1)."
+            return
+        end_show()
+        show["gen"] += 1
+        gen = show["gen"]
+        log.content = "Looking at what's on the table…"
+
+        def work():
+            try:
+                cams = load_cameras(Path(a.run_dir) / a.src)
+                objs = []
+                for o in sc.objects:
+                    k = o["id"]
+                    if o.get("removed"):
+                        continue
+                    if k not in guide_crops:
+                        c = source_crops(body_world(sc, o), cams, count=1)
+                        guide_crops[k] = c[0][1] if c else None
+                    if guide_crops[k] is not None:
+                        objs.append((k, ctrl.label(k), guide_crops[k]))
+                res = guide(task, objs)
+                if gen != show["gen"]:
+                    return
+                rows = "".join(f'<li>{html.escape(s["say"])}' + (f' <span style="color:#ff8c42">'
+                               f'({html.escape(ctrl.label(s["obj"]))})</span>' if s["obj"] else "") + '</li>'
+                               for s in res["steps"])
+                miss = (f'<p><b>Not on the table:</b> {html.escape(", ".join(res["missing"]))}</p>'
+                        if res["missing"] else "")
+                explain_html.content = (
+                    '<aside style="position:fixed;left:12px;top:60px;width:280px;max-height:80vh;overflow:auto;'
+                    'background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;border-radius:10px;'
+                    'z-index:25;font-size:13px;line-height:1.45">'
+                    f'<b style="font-size:15px">{html.escape(res["title"])}</b><p>{html.escape(res["intro"])}</p>'
+                    f'<ol>{rows}</ol>{miss}<p>{html.escape(res["outro"])}</p></aside>')
+                script = ([(None, res["intro"])] + [(s["obj"], f"Step {n + 1}. {s['say']}")
+                                                    for n, s in enumerate(res["steps"])] + [(None, res["outro"])])
+                for n, (k, text) in enumerate(script):
+                    if gen != show["gen"]:
+                        return
+                    for nd in show["nodes"]:
+                        try:
+                            nd.remove()
+                        except Exception:
+                            pass
+                    show["nodes"] = []
+                    if k is not None and world.present(k):
+                        o = ctrl.obj(k)
+                        pts = o["splat"]["means"]
+                        top = float(o["hull"][:, 2].max())
+                        show["nodes"] += [
+                            server.scene.add_point_cloud(f"/obj{k}/guide/p", points=pts[::max(1, len(pts) // 4000)],
+                                                         colors=(255, 140, 66), point_size=0.003 * r),
+                            server.scene.add_label(f"/obj{k}/guide/l", text.split(".")[0] + f": {ctrl.label(k)}",
+                                                   position=(0.0, 0.0, top * 1.15))]
+                    if text:
+                        say(text, f"g{gen}-{n}")
+                        time.sleep(max(2.5, len(text.split()) / 2.6))
+                for nd in show["nodes"]:
+                    try:
+                        nd.remove()
+                    except Exception:
+                        pass
+                show["nodes"] = []
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                log.content = f"Could not make a guide: {e}"
         threading.Thread(target=work, daemon=True).start()
 
     @chips.on_click
@@ -739,9 +849,12 @@ def main():
         refresh_bg()
 
     moved_out = np.zeros(len(keep), bool)                      # background splats that became objects
+    bg_near = np.linalg.norm(sc.bg["means"][:, :2], axis=1) < 1.3 * r     # table area gets view detail
+    bg_detail = {"key": None}
 
     def refresh_bg():
         bg_holder["node"] = add_splat(server, "/bg", {k: v[keep] for k, v in sc.bg.items()})
+        bg_detail["key"] = None                                    # new node has plain colours: redo view detail
         np.save(rm_path, np.concatenate([prev_removed, sc.bg_idx[~keep & ~moved_out]]).astype(np.int64))
         clean_info.content = f"{(~keep).sum():,} splats erased this session · {keep.sum():,} kept"
 
@@ -819,6 +932,25 @@ def main():
         else:
             run_command("moon gravity" if v == "moon g" else "earth gravity")
 
+    def table_detail():
+        """Same view-dependent colour as the objects, for the table area (camera must have settled)."""
+        if sc.bg_sh is None:
+            return
+        if not detail.value:
+            if bg_detail["key"] is not None:
+                bg_holder["node"].rgbs = sc.bg["rgb"][keep]
+                bg_detail["key"] = None
+            return
+        key = np.round(cam["pos"], 4).tobytes()
+        if key == bg_detail["key"]:
+            return
+        sel = np.flatnonzero(bg_near & keep)
+        rgb = sc.bg["rgb"].copy()
+        dirs = (sc.bg["means"][sel] - cam["pos"]) @ sc.T[:3, :3]
+        rgb[sel] = view_rgb(sc.bg_sh["sh0"][sel], sc.bg_sh["shN"][sel], dirs)
+        bg_holder["node"].rgbs = rgb[keep]
+        bg_detail["key"] = key
+
     # ---- loop ----------------------------------------------------------------
     frame = 1 / 60
     last_detail = 0.0
@@ -891,6 +1023,7 @@ def main():
                             rgb = o["splat"]["rgb"]
                         nodes[k].rgbs = rgb
                         appearance_state[k] = key
+                    table_detail()
         time.sleep(max(0.0, frame - (time.time() - t0)))
 
 
