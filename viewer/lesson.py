@@ -80,11 +80,55 @@ def plan(question, ctrl, crops, cam_pos, cam_look, mpu, cache_only=False):
     r = client.spark_chat([{"role": "user", "content": content}], max_tokens=4000, cache_only=cache_only,
                           extra={"reasoning_effort": "low"})
     c = (r.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-    try:
-        j = json.loads(c[c.index("{"): c.rindex("}") + 1])
-    except ValueError:
-        raise RuntimeError("Muse did not return a lesson") from None
+    j = parse_json(c, cache_only)
+    if j is None:
+        raise RuntimeError("Muse did not return a lesson")
     return validate(j, {o["id"] for o in ctrl.sc.objects if not o.get("removed")})
+
+
+def parse_json(text, cache_only=False):
+    """Long structured replies occasionally contain a stray token (seen: '"at": "top"} widespread: null}'). Try
+    the text; then one cheap repair call; then salvage the steps that parse on their own."""
+    def load(t):
+        try:
+            return json.loads(t[t.index("{"): t.rindex("}") + 1])
+        except ValueError:
+            return None
+    j = load(text)
+    if j is not None or "{" not in text:
+        return j
+    from backends.meta import client
+    r = client.spark_chat([{"role": "user", "content": "This JSON is invalid. Return the same content as valid JSON "
+                                                       "only, changing nothing else:\n" + text[:6000]}],
+                          max_tokens=3000, cache_only=cache_only, extra={"reasoning_effort": "minimal"})
+    j = load((r.get("choices") or [{}])[0].get("message", {}).get("content") or "")
+    if j is not None:
+        return j
+    return salvage(text)
+
+
+def salvage(text):
+    """Keep every step object that parses by itself (balanced braces), plus the title."""
+    import re
+    steps, depth, start = [], 0, None
+    body = text[text.find('"steps"'):] if '"steps"' in text else text
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+            if depth == 1 and body[i:i + 40].lstrip("{ \n").startswith('"say"'):
+                start = i
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    steps.append(json.loads(body[start:i + 1]))
+                except ValueError:
+                    pass
+                start = None
+    if not steps:
+        return None
+    m = re.search(r'"title"\s*:\s*"([^"]*)"', text)
+    return {"title": m.group(1) if m else "Lesson", "steps": steps, "missing": [], "outro": ""}
 
 
 def _point_ok(p, ids):

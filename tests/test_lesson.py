@@ -28,6 +28,15 @@ def test_validate_rejects_empty():
         validate({"steps": [{"say": "  "}]}, {1})
 
 
+def test_salvage_keeps_good_steps():
+    from viewer.lesson import salvage
+    broken = ('{"title": "How to Put Lotion", "steps": [{"say": "Start with the bottle.", "focus": [1], "draw": '
+              '[{"type": "highlight", "obj": 1}]}, {"say": "Dab extra.", "draw": [{"type": "label", "obj": 3, '
+              '"at": "top"} widespread: null}] , "missing": []}')
+    j = salvage(broken)
+    assert j["title"] == "How to Put Lotion" and len(j["steps"]) == 1 and j["steps"][0]["say"] == "Start with the bottle."
+
+
 def test_axes_and_curve():
     r, v = _axes(np.array([0.0, -2.0, 1.0]), np.zeros(3))          # looking along +y
     assert np.allclose(r, [1, 0, 0]) and np.allclose(v, [0, -1, 0])   # right = +x, toward you = -y
