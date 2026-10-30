@@ -2,6 +2,20 @@
 
 Updated: Oct 30.
 
+## 3D models + Muse names — Oct 30 (late night)
+- Names: `agent.properties` now sends 3 views and asks for brand, specific type and visible text. `--names-only` refreshes names.json without touching mass/friction/scale.
+  - table1 is now "cetaphil moisturizing lotion pump bottle", "gillette aerosol deodorant spray" (alias "shield"), "toilet paper roll". The cut-outs show "Gillette" on the can.
+- Similar search uses the name plus the visible text. The panel says "Possible matches" and sits beside an explanation.
+- `viewer/route.py`: one message can trigger several modes (explain + similar). The object can be named in the text (`find_object`). 25 routing tests.
+- 3D models (`viewer/model3d.py` prep/paint + `segment/hy3d_shape.py`):
+  - Muse picks the front photo; the real frames nearest -90/180/+90 deg are cut out with SAM 3.1 and fed to Hunyuan3D-2mv turbo (own venv `~/venvs/hy3d`).
+  - The mesh is aligned to the scan (complete3d.align) and every vertex is coloured from the most head-on real photo, z-buffered against all objects.
+  - About 13 s per object, peak 3.1 GB GPU. The Cetaphil label is readable. Much better than TripoSR.
+  - Gotchas: the stock loader builds fp32 on CPU (about 10 GB), which OOM-killed WSL, so the runner loads fp16 per part. transformers 4.48.3 + diffusers 0.32.2 are pinned in the hy3d venv. CPU offload needs `components`, `_exclude_from_cpu_offload` and `device=cuda` set by hand. `enable_flashvdm(replace_vae=False)`.
+  - Don't run the viewer and Hunyuan at the same time (8 GB WSL RAM).
+  - Not yet in the viewer UI. Comparison images are in `.preview3d/compare.jpg` (git-ignored).
+- Dependencies: hy3d venv (torch 2.6 cu124, diffusers, transformers, accelerate, pymeshlab), separate from LiveSplat. Reason: user-facing 3D models from scans.
+
 ## Consumer refinement — Oct 30 (night)
 - User plan: refine and lock the consumer side (Ask/Tell, explain, scene clean-up, fix the scan), then move to the robotics lab (the main dark horse).
 - Ask/Tell:
