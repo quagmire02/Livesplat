@@ -155,7 +155,8 @@ def _clean(plans, n):
 
 
 # ---- the loop -------------------------------------------------------------------
-def direct(goal, ctrl, provider="baseten", n=6, rounds=3, max_tokens=8000, progress=print, log_dir=None, lock=None):
+def direct(goal, ctrl, provider="baseten", n=6, rounds=2, max_tokens=8000, progress=print, log_dir=None, lock=None,
+           good=8):
     """Returns {"best": plan, "score", "met", "rounds": [...], "calls"}. Does not touch the live scene.
     lock: the viewer's physics lock (simulate swaps the world's data, so the live loop must not step meanwhile)."""
     import contextlib
@@ -169,8 +170,7 @@ def direct(goal, ctrl, provider="baseten", n=6, rounds=3, max_tokens=8000, progr
         last = rnd == rounds
         if last and not tried:
             break
-        progress("Director: Muse is scoring the last plans…" if last else
-                 f"Director round {rnd + 1}/{rounds}: Muse is planning…")
+        progress("Checking which idea worked best…" if last or rnd else "Thinking of ways to do it…")
         msg = PROMPT.format(goal=goal, objects=scene_summary(ctrl), radius=ctrl.sc.radius, g=ctrl.w.gravity,
                             state=json.dumps(start), tools=_tools_text(), wait=DEFAULT_WAIT, settle=SETTLE,
                             history=history, n=0 if last else n)
@@ -197,13 +197,13 @@ def direct(goal, ctrl, provider="baseten", n=6, rounds=3, max_tokens=8000, progr
             met = True
             progress(f"Goal met by plan {int(g) + 1}: {p['plan']['idea']}")
             break
-        if last:
+        if last or best["score"] >= good:                # good enough: do not spend another round
             break
         plans = _clean(reply.get("plans"), n)
         if not plans:
             progress("Muse gave no valid plans")
             break
-        progress(f"Round {rnd + 1}: simulating {len(plans)} plans…")
+        progress(f"Trying {len(plans)} ideas in the simulator…")
         batch = []
         for p in plans:
             with lock:
@@ -240,9 +240,8 @@ def summary(result):
     b = result["best"]
     if b["plan"] is None:
         return f"Director: no working plan after {result['plans_simulated']} simulated plans."
-    head = "Goal met" if result["met"] else f"Best try (score {b['score']:.0f}/10)"
-    return (f"{head} after {result['plans_simulated']} simulated plans and {result['calls']} Muse calls: "
-            f"{b['plan']['idea']}" + (f" ({b['why']})" if b["why"] else ""))
+    head = "Done" if result["met"] or b["score"] >= 8 else f"Closest I got ({b['score']:.0f}/10)"
+    return f"{head}: tried {result['plans_simulated']} ideas in the simulator, playing the best one."
 
 
 def main():
@@ -253,7 +252,7 @@ def main():
     ap.add_argument("--src", default="thrift_sfm")
     ap.add_argument("--provider", default="baseten", choices=["baseten", "meta"])
     ap.add_argument("--plans", type=int, default=6)
-    ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--rounds", type=int, default=2)
     a = ap.parse_args()
     from agent.controller import Controller
     from physics.world import World

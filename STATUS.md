@@ -2,6 +2,16 @@
 
 Updated: Oct 30.
 
+## Simple UI + Explain mode — Oct 30 (later)
+- User feedback: too many sliders/options; the Director button felt odd and slow. Now:
+  - The main panel is one "ask or tell" box, a send button, and buttons for the selected object (explain, price, put back). Everything else is in a collapsed "More tools".
+  - The box routes everything through Muse: plain commands, `plan_goal` (Director), `explain`. There is no Director button.
+  - Director runs 2 rounds max and stops at score ≥ 8; progress is one plain-language notification.
+- Explain mode (`viewer/explain.py`): Muse vision chooses parts and narration, SAM 3.1 finds each part in close-up crops, and the masks become 3D labels on the object's splats. The object floats in front of the camera, turned to the photographed side. The browser reads the narration aloud (Web Speech, via an img onerror in add_html) while each part is highlighted. A photo diagram with outlines sits in the left panel.
+  - CLI-verified on the spray can: cap, body and label, about $0.05.
+  - Not yet clicked through in the browser; speech depends on the browser allowing it.
+- The budget ledger had a NUL tail from an unclean WSL shutdown. It was cleaned (backup `ledger.jsonl.bak-*`), and `spent()` now skips unreadable lines with a warning.
+
 ## Director mode + market search — Oct 30
 - Verified on table1 via Baseten (each goal about $0.05–0.10):
   - "knock the roll off the table": met in round 1.

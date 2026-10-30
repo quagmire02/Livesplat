@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from scene_io.thrift import load_cameras
-from viewer.app import Scene
+from viewer.app import Scene, body_world
 from viewer.sam_isolate import isolate
 
 KEEP_ON_TABLE, ERASE = 2, -1
@@ -24,6 +24,7 @@ def main():
     ap.add_argument("run_dir")
     ap.add_argument("--src", default="thrift_sfm")
     ap.add_argument("--ids", type=int, nargs="*")
+    ap.add_argument("--reset", action="store_true", help="clear the object layer first (undo an earlier, wrong fix)")
     a = ap.parse_args()
     run = Path(a.run_dir)
     sc = Scene(run, a.src)
@@ -46,10 +47,11 @@ def main():
         k = o["id"]
         if a.ids and k not in a.ids:
             continue
-        p = o.get("capture_means", o["splat"]["means"]) + o["base"]
-        world = (p - sc.T[:3, 3]) @ sc.T[:3, :3]
+        world = body_world(sc, o)                         # body splats only: indices match the repair layer
         rep = isolate(world, props.get(str(k), {}).get("sam_prompt", f"object {k}"), cams, cache_only=True)
         state = layers[f"{k}_splat"][0]
+        if a.reset:
+            state[:] = 0
         state[state == KEEP_ON_TABLE] = 0                     # undo the old "pin everything" fix
         ids = rep["spill_ids"][rep["spill_ids"] < len(state)]
         low = o["splat"]["means"][ids, 2] < TABLE_BAND * sc.radius

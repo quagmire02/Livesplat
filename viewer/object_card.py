@@ -122,7 +122,7 @@ class ObjectCards:
         self.market_btn = gui.add_button('Search the market (prices, competitors)',
                                          hint='Free web search (DuckDuckGo or SearXNG) on the Muse search words, then Muse '
                                               'picks listings and prices from the results. Needs an analysis first.')
-        self.market = {}
+        self.market, self.notify = {}, None                 # notify(text): bottom notification, set by viewer.app
         self.market_btn.on_click(lambda _: self.start_market())
         self.iso, self.repair = {}, None                    # repair panel is attached by viewer.app
         self.isolate.on_click(lambda _: self.start_isolate())
@@ -183,17 +183,20 @@ class ObjectCards:
                 self.busy.release()
         threading.Thread(target=work, daemon=True).start()
 
-    def start_market(self):
+    def start_market(self, k=None):
         import os
-        k = self.selected
-        card = self.cards.get(k)
-        if card is None:
-            self.status.content = 'Analyse the object (or load the cached analysis) first: search uses its name.'
+        k = self.selected if k is None else k
+        if k is None:
             return
+        self.selected = k
+        label = self.ctrl.label(k)
+        card = self.cards.get(k) or {'name': label, 'search_query': label}
         if not self.busy.acquire(blocking=False):
             return
         provider = 'baseten' if os.environ.get('LIVESPLAT_ALLOW_BASETEN') == '1' else 'meta'
         self.status.content = f'Searching the web for "{card["search_query"]}"…'
+        if self.notify:
+            self.notify(f'Looking up prices for the {label}…')
 
         def work():
             try:
@@ -203,17 +206,20 @@ class ObjectCards:
                 m = self.market[k]
                 self.status.content = (f'Object {k}: {len(m["listings"])} listings from {m["results"]} web results, '
                                        f'price range {m["price_range"]}.')
+                if self.notify:
+                    self.notify(f'{label}: {m["price_range"]} ({len(m["listings"])} shops, see the left panel)')
                 self.render()
             except Exception as e:
                 self.status.content = f'Market search unavailable: {e}'
+                if self.notify:
+                    self.notify(f'Price search failed: {e}')
             finally:
                 self.busy.release()
         threading.Thread(target=work, daemon=True).start()
 
     def _object_world(self, k):
-        o = self.ctrl.obj(k)
-        p = o.get('capture_means', o['splat']['means']) + o['base']
-        return (p - self.scene.T[:3, 3]) @ self.scene.T[:3, :3]
+        from viewer.app import body_world                   # movable splats only: spill ids index o['splat']
+        return body_world(self.scene, self.ctrl.obj(k))
 
     def start_isolate(self):
         k = self.selected
@@ -283,8 +289,8 @@ class ObjectCards:
     def render(self):
         k = self.selected
         self.confirm.disabled = k not in self.cards
-        if not self.show.value or k is None:
-            self.panel.content = ''
+        if not self.show.value or k is None or not (k in self.cards or k in self.market or k in self.iso):
+            self.panel.content = ''                         # nothing to show yet: keep the screen clean
             return
         esc = html.escape
         body = f'<h3 style="margin:0">Object {k} · source references</h3><p>{esc(self.ctrl.label(k))}</p>'

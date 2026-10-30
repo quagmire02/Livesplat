@@ -36,7 +36,14 @@ def spent() -> float:
     p = ledger_path()
     if not p.exists():
         return 0.0
-    return sum(json.loads(l)["usd"] for l in p.read_text().splitlines() if l.strip())
+    total = 0.0
+    for l in p.read_text().replace("\x00", "").splitlines():   # NUL tail = WSL shut down mid-write
+        if l.strip():
+            try:
+                total += json.loads(l)["usd"]
+            except (ValueError, KeyError):
+                print(f"budget: unreadable ledger line skipped: {l[:80]!r}")
+    return total
 
 
 def max_call() -> float:

@@ -1,6 +1,6 @@
 # agent/ — tools, planner, controller
 Files:
-- schema.py — 17 tools (incl. slide) (OpenAI function format, also sent to Spark). validate() checks structure, types, finite ranges, enums and bounded simulation actions.
+- schema.py — 19 tools (incl. slide; plan_goal and explain are handed to the viewer: director / viewer.explain) (OpenAI function format, also sent to Spark). validate() checks structure, types, finite ranges, enums and bounded simulation actions.
 - controller.py — Runs tools. Finds objects by name (names.json, then automatic names). Directions are relative to the camera. reset is FULL: poses, colours, sizes, removed objects, properties, gravity.
 - parser.py — Local rules (free). normalize() changes synonyms and typos. "what if/would/will" gives simulate. "it" = last object or the selected object.
 - director.py — Director mode: Muse proposes plans for a goal, MuJoCo simulates each on a copy of the state, Muse scores measured outcomes and revises; best plan plays live. Logs to runs/<scene>/director/.

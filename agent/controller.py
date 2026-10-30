@@ -269,6 +269,12 @@ class Controller:
         self.w._build(keep=False)                         # fresh model: rest poses, zero velocity
         return "reset everything: positions, colours, sizes, removed objects, properties, gravity"
 
+    def t_plan_goal(self, goal):
+        return f"planning: {goal}"          # the viewer runs agent.director for this call
+
+    def t_explain(self, obj, question=""):
+        return f"explaining {self.label(self.resolve(obj))}"   # the viewer runs viewer.explain for this call
+
     def t_simulate(self, actions, seconds=2.0):
         """Run actions on a saved state, report, then restore. Deterministic."""
         import mujoco

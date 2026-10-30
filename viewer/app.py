@@ -106,7 +106,7 @@ class Scene:
                                  "friction": DEFAULT_FRICTION, "bounce": 0.1,
                                  "fill": fill_splat(self.bg, base, hull, r, polygon=poly),
                                  "contact": contact_part, "appearance": appearance,
-                                 "capture_means": a["means"]})
+                                 "capture_means": a["means"], "body_ids": np.flatnonzero(body)})
             self.objects[-1]["splat"] = moving
             if separate_contact:
                 print(f"  obj {k}: {int(body.sum()):,} movable splats; {int(contact.sum()):,} anchored contact splats")
@@ -145,6 +145,13 @@ class Scene:
             return -1.6 * r
         h, e = np.histogram(z, bins=60)
         return float(e[np.argmax(h)] + (e[1] - e[0]) / 2)
+
+
+def body_world(sc, o):
+    """World-frame capture positions of the object's MOVABLE splats, in o["splat"] order (contact splats excluded),
+    so indices from projections match o["splat"] and the repair layer."""
+    p = o["capture_means"][o["body_ids"]] if "body_ids" in o else o.get("capture_means", o["splat"]["means"])
+    return (p + o["base"] - sc.T[:3, 3]) @ sc.T[:3, :3]
 
 
 def add_splat(server, name, a):
@@ -225,15 +232,6 @@ def main():
                                         "href": None},), "image": None},
         control_layout="floating", control_width="medium", dark_mode=True, show_logo=False,
         show_share_button=False, brand_color=(255, 140, 66))
-    # Four tabs by task: Play (do things), Object (the selected object), Scene (clean the room), Robots (optional).
-    tabs = server.gui.add_tab_group()
-    play_tab, obj_tab, clean_tab, sim_tab = (tabs.add_tab("Play"), tabs.add_tab("Object"),
-                                             tabs.add_tab("Scene"), tabs.add_tab("Robots"))
-    with obj_tab:
-        server.gui.add_markdown("Click an object in the scene, then open a section.")
-        inspect_tab = server.gui.add_folder("Details & placement")
-        references_tab = server.gui.add_folder("Identify with AI (SAM 3.1 + Muse)", expand_by_default=False)
-        repair_tab = server.gui.add_folder("Fix the scan", expand_by_default=False)
     head = lambda k: ctrl.label(k).split()[-1]
     ids_ = [o["id"] for o in sc.objects]
     if not ids_:
@@ -270,17 +268,27 @@ def main():
     toast_state = {"n": 0}
     toast_html = server.gui.add_html("")
 
+    # Main panel: one box + buttons for the selected object. Everything else lives in "More tools".
+    intro = server.gui.add_markdown("Click an object to pick it up. Drag the arrows to move it. "
+                                    "Or just type what you want.")
+    box = server.gui.add_text("ask or tell", "", hint=f"e.g. '{examples['push']}', 'slide the {head(ids_[0])} next to "
+                              f"the {head(ids_[1])}', 'what is this?', 'moon gravity', 'reset'")
+    go = server.gui.add_button("send")
+    sel_md = server.gui.add_markdown("")
+    chips = server.gui.add_button_group("this object", ["explain", "price", "put back"], visible=False)
+    more = server.gui.add_folder("More tools", expand_by_default=False)
+    with more:
+        # By task: Actions (quick buttons, settings), Object (details, AI identify, fix the scan), Scene, Robots.
+        tabs = server.gui.add_tab_group()
+        play_tab, obj_tab, clean_tab, sim_tab = (tabs.add_tab("Actions"), tabs.add_tab("Object"),
+                                                 tabs.add_tab("Scene"), tabs.add_tab("Robots"))
+    with obj_tab:
+        inspect_tab = server.gui.add_folder("Details & placement")
+        references_tab = server.gui.add_folder("Identify with AI", expand_by_default=False)
+        repair_tab = server.gui.add_folder("Fix the scan", expand_by_default=False)
     with play_tab:
-        intro = server.gui.add_markdown("**Click** an object to select it, **drag** its arrows to move it, "
-                                        "or **tell it** what to do.")
-        box = server.gui.add_text("command", examples["push"] + ", then make it red",
-                                  hint="A command (run command) or a goal for Director, e.g. 'slide the bottle next to the can'")
-        go = server.gui.add_button("run command")
-        direct_btn = server.gui.add_button("plan it · Director", hint="Give a goal ('stack everything into a tower'). "
-                                           "Muse proposes plans, physics tests each, Muse revises, the best one plays.")
         direct_md = server.gui.add_markdown("", visible=False)
         try_btn = server.gui.add_button_group("try", list(examples))
-        sel_md = server.gui.add_markdown("_nothing selected_")
         obj_btn = server.gui.add_button_group("selected", ["push", "drop", "throw", "remove"])
         color = server.gui.add_dropdown("colour", ["(original)"] + list(COLORS))
         scene_btn = server.gui.add_button_group("scene", ["reset", "pause", "moon g", "earth g"])
@@ -311,6 +319,10 @@ def main():
     from sim.view import SimMode
 
     def run_command(text):
+        if not text.strip():
+            return
+        if planner and planner.value in ("meta", "baseten", "cached"):
+            log.content = "Thinking…"
         with lock:
             before = session.snapshot()
             try:
@@ -326,29 +338,33 @@ def main():
             if any(c["name"] in ("push", "slide", "drop", "throw", "stack") for c in changes):
                 ui["paused"] = False
             sync_mode()
-        lines = [f"{text}"] + [f"• {res}" for c, res in results]
-        if note:
+        handoff = [(c, res) for c, res in results if c["name"] in ("plan_goal", "explain") and not res.startswith("error:")]
+        lines = [f"{text}"] + [f"• {res}" for c, res in results if (c, res) not in handoff]
+        if note and not handoff:
             lines.append(f"• {note}")
         history[:0] = ["\n".join(lines)]
-        log.content = "\n".join(lines)
+        if len(lines) > 1 or not handoff:
+            log.content = "\n".join(lines)
         print("\n".join(lines), flush=True)
         show_selection()
+        for c, _res in handoff:
+            if c["name"] == "plan_goal":
+                start_director(c["args"]["goal"])
+            else:
+                start_explain(ctrl.resolve(c["args"]["obj"]), c["args"].get("question", text))
 
-    go.on_click(lambda _: run_command(box.value))
+    go.on_click(lambda _: threading.Thread(target=run_command, args=(box.value,), daemon=True).start())
     director_busy = threading.Lock()
 
-    @direct_btn.on_click
-    def _(_):
+    def start_director(goal):
         from agent import director
         provider = planner.value if planner else "local"
         if provider not in ("meta", "baseten"):
-            log.content = "Director needs Muse: set planner to meta or baseten (Play > settings)."
+            log.content = "This needs Muse (More tools > Actions > settings > planner)."
             return
         if not director_busy.acquire(blocking=False):
-            log.content = "Director is already working on a goal."
+            log.content = "Still working on the last goal…"
             return
-        goal = box.value
-        direct_btn.disabled = True
 
         def work():
             try:
@@ -366,18 +382,142 @@ def main():
                     before = session.snapshot()
                     ui["paused"] = False
                     sync_mode()
-                log.content = director.summary(res) + "\nplaying it now…"
+                log.content = director.summary(res)
                 director.play(res["best"]["plan"], ctrl, lock)
                 session.record(f"director: {goal}", before)
                 history[:0] = [director.summary(res)]
-                log.content = director.summary(res)
                 print(director.summary(res), flush=True)
             except Exception as e:
-                log.content = f"Director failed: {e}"
+                log.content = f"Could not plan that: {e}"
             finally:
-                direct_btn.disabled = False
                 director_busy.release()
         threading.Thread(target=work, daemon=True).start()
+
+    # ---- Explain mode: bring the object up, point at its parts, talk ------------------
+    explain_html = server.gui.add_html("")
+    show = {"k": None, "pose": None, "paused": True, "gen": 0, "nodes": []}
+
+    def say(text, n):
+        """Speak in the viewer's browser (free Web Speech API) and show it as a caption."""
+        js = json.dumps(text).replace('"', "&quot;")
+        toast_html.content = ""
+        explain_html.content = explain_html.content.split("<!--say-->")[0] + (
+            f'<!--say--><img alt="" style="display:none" src="x:{n}" onerror="try{{speechSynthesis.cancel();'
+            f'speechSynthesis.speak(new SpeechSynthesisUtterance({js}))}}catch(e){{}}">')
+        log.content = text
+
+    def end_show(restore=True):
+        show["gen"] += 1
+        for nd in show["nodes"]:
+            try:
+                nd.remove()
+            except Exception:
+                pass
+        show["nodes"] = []
+        explain_html.content = ('<img alt="" style="display:none" src="x:stop" '
+                                'onerror="try{speechSynthesis.cancel()}catch(e){}">')
+        k = show["k"]
+        if restore and k is not None and world.present(k):
+            with lock:
+                world.place(k, *show["pose"])
+                ui["paused"] = show["paused"]
+                sync_mode()
+        show["k"] = None
+
+    def bring_to_front(k, frame):
+        """Float object k in front of the camera, turned to the side the best photo saw."""
+        o = ctrl.obj(k)
+        h = float(o["hull"][:, 2].max())
+        size = max(h, float(np.ptp(o["hull"][:, :2], 0).max()))
+        fwd = cam["look"] - cam["pos"]
+        fwd = fwd / max(np.linalg.norm(fwd), 1e-9)
+        pos = cam["pos"] + fwd * 3.0 * size - np.array([0, 0, 0.5 * h])
+        c = sc.T[:3, :3] @ frame["c2w"][:3, 3] + sc.T[:3, 3]           # photo camera, table frame
+        view, user = c - o["base"], cam["pos"] - pos
+        yaw = np.arctan2(user[1], user[0]) - np.arctan2(view[1], view[0])
+        world.place(k, pos, (np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)))
+
+    def start_explain(k, question):
+        import html
+        from backends.meta.client import image_data_uri
+        from scene_io.thrift import load_cameras
+        from viewer.explain import COLORS, explain
+        if not allow_meta:
+            log.content = "Explain needs Muse (start the viewer with LIVESPLAT_ALLOW_META=1)."
+            return
+        end_show()
+        show["gen"] += 1
+        gen = show["gen"]
+        log.content = f"Taking a look at the {ctrl.label(k)}…"
+
+        def work():
+            try:
+                o = ctrl.obj(k)
+                res = explain(body_world(sc, o), ctrl.label(k), question, load_cameras(Path(a.run_dir) / a.src))
+                if gen != show["gen"]:
+                    return
+                with lock:
+                    show.update(k=k, pose=world.pose(k), paused=ui["paused"])
+                    ui["paused"] = True
+                    sync_mode()
+                    bring_to_front(k, res["best_frame"])
+                    gizmo.visible = False
+                local = o["splat"]["means"]
+                hl = []
+                for i, part in enumerate(res["parts"]):
+                    col = COLORS[i % len(COLORS)]
+                    pts = local[part["ids"]]
+                    anchor = np.median(pts, 0)
+                    show["nodes"].append(server.scene.add_label(f"/obj{k}/explain/l{i}", f"{i + 1}  {part['name']}",
+                                                                position=tuple(anchor)))
+                    cloud = server.scene.add_point_cloud(f"/obj{k}/explain/p{i}", points=pts[::max(1, len(pts) // 3000)],
+                                                         colors=col, point_size=0.004 * r, visible=False)
+                    show["nodes"].append(cloud)
+                    hl.append(cloud)
+                items = "".join(f'<li style="color:rgb{COLORS[i % len(COLORS)]}"><span style="color:#eee">'
+                                f'<b>{html.escape(q["name"])}</b> — {html.escape(q["say"])}</span></li>'
+                                for i, q in enumerate(res["parts"]))
+                explain_html.content = (
+                    '<aside style="position:fixed;left:12px;top:60px;width:280px;max-height:80vh;overflow:auto;'
+                    'background:rgba(30,30,30,.94);color:#eee;padding:14px;border:1px solid #ff8c42;border-radius:10px;'
+                    'z-index:25;font-size:13px;line-height:1.45">'
+                    f'<b style="font-size:15px">{html.escape(res["title"])}</b><p>{html.escape(res["intro"])}</p>'
+                    f'<img style="width:100%;border-radius:6px" src="{image_data_uri(res["diagram"])}"><ol>{items}</ol>'
+                    f'<p>{html.escape(res["outro"])}</p><small>Labels found with SAM 3.1 on your own photos; '
+                    'press "put back" when done.</small></aside>')
+                script = ([(None, res["intro"])] + [(i, q["say"]) for i, q in enumerate(res["parts"])]
+                          + [(None, res["outro"])])
+                for n, (i, text) in enumerate(script):
+                    if gen != show["gen"] or not text:
+                        continue
+                    for j, cl in enumerate(hl):
+                        cl.visible = j == i
+                    say(text, f"{gen}-{n}")
+                    time.sleep(max(2.5, len(text.split()) / 2.6))
+                for cl in hl:
+                    cl.visible = False
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                log.content = f"Could not explain that: {e}"
+        threading.Thread(target=work, daemon=True).start()
+
+    @chips.on_click
+    def _(_):
+        k = ui["sel"]
+        if k is None:
+            return
+        if chips.value == "explain":
+            start_explain(k, "what is this and how do I use it?")
+        elif chips.value == "price":
+            cards.start_market(k)
+        else:
+            if show["k"] is not None:
+                end_show()
+            else:
+                with lock:
+                    world.place(k, world.rest[k][:3], world.rest[k][3:])
+            log.content = f"{ctrl.label(k)} is back in its place"
 
     @try_btn.on_click
     def _(_):
@@ -400,13 +540,13 @@ def main():
         if k is None or k not in ctrl.names:
             ui["sel"] = None
             gizmo.visible = False
-            sel_md.content = "_nothing selected_"
+            sel_md.content = ""
+            chips.visible = False
             if editor is not None:
                 editor.refresh()
             return
-        o = ctrl.obj(k)
-        sel_md.content = (f"**{ctrl.label(k)}** · {o['mass']:.2f} kg · friction {o['friction']:.2f} "
-                          f"· size x{o['scale']:.2g}")
+        sel_md.content = f"**{ctrl.label(k).capitalize()}**"
+        chips.visible = not ui["sim"]
         gizmo.visible = world.present(k) and not ui["sim"]
         if editor is not None:
             editor.refresh()
@@ -450,6 +590,7 @@ def main():
     with references_tab:
         cards = ObjectCards(server, sc, ctrl, a.run_dir, a.src, allow_meta, reference_sidebar, confirm_reference_name)
         cards.repair = repair                               # SAM-suggested fixes go through the repair workspace
+        cards.notify = lambda s: setattr(log, "content", s)
 
     @server.scene.on_click()
     def _(ev):
@@ -640,7 +781,7 @@ def main():
             keep[undo_stack.pop()] = True
             refresh_bg()
 
-    tabletop_gui = [intro, interaction, throwing, detail, mode_info, box, try_btn, go, log, sel_md, obj_btn, color,
+    tabletop_gui = [intro, interaction, throwing, detail, mode_info, box, try_btn, go, log, sel_md, chips, obj_btn, color,
                     scene_btn, add_btn, *clean_widgets] + ([planner] if planner else [])
 
     @mode_btn.on_click

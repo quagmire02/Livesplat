@@ -50,6 +50,12 @@ TOOLS = [
     _fn("remove", "Remove an object from the scene.", {"obj": _OBJ}, ["obj"]),
     _fn("restore", "Bring back a removed object and undo its colour/scale changes.", {"obj": _OBJ}, ["obj"]),
     _fn("reset", "Reset positions, colours, sizes, removed objects, properties and gravity to the capture."),
+    _fn("plan_goal", "For a goal that needs trial and error (precise placement next to something, arranging several "
+        "objects, stacking so it stays, knocking something off): try several plans in the simulator and play the best.",
+        {"goal": {"type": "string", "description": "the goal in the user's words"}}, ["goal"]),
+    _fn("explain", "Show and tell about one object: bring it to the user, point at its parts on the 3D object and "
+        "explain what it is or how to use it. Use for 'what is this', 'how do I use', 'show me'.",
+        {"obj": _OBJ, "question": {"type": "string", "description": "the user's question"}}, ["obj"]),
     _fn("simulate", "Predict without showing: apply actions, run physics for some seconds, report what happens.",
         {"actions": {"type": "array", "items": {"type": "object"}, "description": "list of {name, args} action calls"},
          "seconds": {"type": "number", "description": "default 2"}}, ["actions"]),

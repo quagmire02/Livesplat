@@ -11,7 +11,9 @@ from agent.schema import TOOLS
 SYSTEM = ("You control a physics sandbox of real objects on a table. Use the tools to do what the user asks; "
           "chain several calls if needed. Directions are relative to the user's view. If the request "
           "cannot be done with the tools, call no tool and say briefly what is possible instead. "
-          "For questions like 'what if' or 'will it fall', use simulate. Objects: {objects}. "
+          "For questions like 'what if' or 'will it fall', use simulate. Use slide for 'move X next to Y'. "
+          "Use plan_goal only when simple tool calls cannot reliably reach the goal. Use explain for questions about "
+          "what an object is or how to use it. Objects: {objects}. "
           "Gravity: {g:.2f} scene units/s2. Scene scale is uncalibrated; do not claim precise metric dimensions. "
           "Mass and friction are estimates unless the user supplied them.")
 
