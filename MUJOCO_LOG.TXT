@@ -16,3 +16,25 @@ WARNING Fri Oct 30 20:22:25 2026: Nan, Inf or huge value in QVEL at DOF 13. The 
 
 WARNING Fri Oct 30 21:41:56 2026: Nan, Inf or huge value in QVEL at DOF 13. The simulation is unstable. Time = 0.5820.
 
+WARNING Fri Oct 30 22:17:01 2026: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 1.2480.
+
+WARNING Fri Oct 30 22:17:03 2026: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 1.2480.
+
+WARNING Fri Oct 30 22:17:03 2026: Inertia matrix is too close to singular, or the effective-metric solve failed to converge, at DOF 1. Check model. Time = 1.1460.
+
+WARNING Fri Oct 30 22:17:03 2026: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 1.1460.
+
+WARNING Fri Oct 30 22:17:07 2026: Nan, Inf or huge value in QVEL at DOF 13. The simulation is unstable. Time = 0.5820.
+
+WARNING Fri Oct 30 22:17:07 2026: Nan, Inf or huge value in QACC at DOF 14. The simulation is unstable. Time = 0.6000.
+
+WARNING Fri Oct 30 22:17:07 2026: Nan, Inf or huge value in QVEL at DOF 13. The simulation is unstable. Time = 0.5820.
+
+WARNING Fri Oct 30 22:18:51 2026: Inertia matrix is too close to singular, or the effective-metric solve failed to converge, at DOF 17. Check model. Time = 2.6780.
+
+WARNING Fri Oct 30 22:18:51 2026: Nan, Inf or huge value in QACC at DOF 12. The simulation is unstable. Time = 2.6780.
+
+WARNING Fri Oct 30 22:18:51 2026: Inertia matrix is too close to singular, or the effective-metric solve failed to converge, at DOF 13. Check model. Time = 2.6660.
+
+WARNING Fri Oct 30 22:18:55 2026: Nan, Inf or huge value in QVEL at DOF 12. The simulation is unstable. Time = 2.2540.
+

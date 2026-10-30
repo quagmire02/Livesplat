@@ -2,6 +2,10 @@
 
 Updated: Oct 30.
 
+## Connected Lab / Guide planning — Oct 30
+- Added docs/CONNECTED_PRODUCT_PLAN.md based on the user's updated overview and current implementation notes. Lab extends existing sensitivity/advisor work with targeted observations, evidence updates and reproducible retests. Guide gains how-to/what-to storyboards, anchored drawings and Muse Image illustrations using a shared player.
+- Scope is planning only; preserves existing consumer baseline and user modifications. Proposed spending caps are not authorization. No model calls, runtime edits, commits or pushes in this pass.
+
 ## Robotics lab — Oct 30/31
 - Plan (user agreed: not only arms). A Lab bench with 4 tests, each over property ranges with a results card, a suggestion and an exportable report:
   - transport (mobile robots/trays)
@@ -33,7 +37,14 @@ Updated: Oct 30.
   - Grip-force calibration (`sim/grip_calibrate.py`): stock squeeze was 1.3 N/finger for the Panda (real 70 N) and 402 N for the xArm7. All arms are now calibrated to force_n; the Panda value is from the data sheet, the others are estimates.
 - Added: `lab/advisor.py` (what decides it, Muse grip vs planner, Muse-proposed changes simulated); Lab card shows these lines; "watch the arm" replays a success or failure in the live scan.
 - First advisor run (Panda, uncalibrated grip): the uninformed Muse grip was worse than the planner (can 22% vs 100%). Given the planner's facts it matched (89%, 100%). Pads on the bottle: 0 -> 11%.
-- Next: the calibrated 5-arm sweep with the advisor (running); click through the Lab tab.
+- Calibrated 5-arm sweep with the advisor (Oct 31):
+  - Panda (70 N): bottle top 100% (was 0% with the stock 1.3 N grip), can 100%, roll 67%. Decided by true size: ×1.11 → 0%.
+  - xArm7 (30 N, estimated): bottle 100%; can side 67% (size decides: ×0.89 → 0%); roll 33% (size).
+  - WidowX (10 N): can top 100%; bottle 11% (grip force ×3 → 22%); roll too wide (50 mm gripper).
+  - ViperX (15 N): ~0%. Its finger travel in the model stops at 42 mm, so the 43-49 mm can barely gets squeezed.
+  - SO-100 (12 N): blocked or out of reach on this layout. Muse's experiments (base 15 cm closer, top, pads) all stay at 0%.
+  - Recurring pattern: Muse's grip avoids caps/pumps ("may detach") and picks a side grasp that is infeasible, while the planner's top grasp on the cap succeeds in the rigid sim. Both are reported: the sim cannot model detachable or soft parts, Muse flags them.
+- Next: click through the Lab tab; demo story.
 
 ## CONSUMER SIDE LOCKED — Oct 30 (tag `consumer-lock`)
 - Frozen: the one-box Ask/Tell (explain / similar / guide / 3D model / 3D look / commands / Director), scene clean-up, fix the scan, Muse names. Only bug fixes from here.

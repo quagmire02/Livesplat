@@ -207,7 +207,8 @@ def summary(res):
         if rec.get("muse_grip"):
             g = rec["muse_grip"]
             lines.append(f"  · Muse's grip ({g['mode']} at {int(g['band'][0] * 100)}-{int(g['band'][1] * 100)}% height: "
-                         f"{g['why']}) -> {int(g['rate'] * 100)}% vs planner {int(rec['best_rate'] * 100)}%")
+                         f"{g['why']}) -> {int(g['rate'] * 100)}% vs planner "
+                         f"{int(g.get('planner_nominal', rec['best_rate']) * 100)}% (same 9 cases, estimated size)")
         for e in rec.get("experiments", []):
             lines.append(f"  · Experiment: {e['label']} -> {int(e['rate'] * 100)}% "
                          f"(was {int(e['baseline'] * 100)}%). {e['why']}")

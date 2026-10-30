@@ -190,14 +190,22 @@ def advise(run, robot, res, threshold=0.9):
     for body, rec in res["objects"].items():
         o = next(x for x in meta["objects"] if x["body"] == body)
         rec["pos_m"] = o["pose"]["pos"]
-        rec["decides"] = decides(rec)
+        from lab.grasp import _readable
+        rec["decides"] = _readable(decides(rec), res)
+        if rec["decides"].startswith("true size") and 0 < rec["best_rate"] < 0.9:
+            rec["suggestion"] = (f"Works in {int(rec['best_rate'] * 100)}% of trials ({rec['best_mode']} grasp), and the "
+                                 "true size decides it: type the object's real size (e.g. 'the can is 15 cm tall') "
+                                 "to get a definite answer.")
+        elif rec["decides"].startswith("grip friction") and 0 < rec["best_rate"] < 0.9:
+            rec["suggestion"] = (f"Works in {int(rec['best_rate'] * 100)}% of trials; grip friction decides it: "
+                                 "rubber/TPU fingertip pads should make it reliable (see the experiments).")
         baseline = _baseline(rec)
         k = int(o["id"])
         try:
             hint = grip_hint(run, k, rec, res)
             r, why = _measure(res, robot, body, hint["mode"], res["pad_friction"],
                               band=hint["band"] if hint["mode"] == "side" else None)
-            rec["muse_grip"] = {**hint, "rate": r, "failures": why}
+            rec["muse_grip"] = {**hint, "rate": r, "failures": why, "planner_nominal": baseline}
             print(f"  {rec['name']}: Muse grip {hint['mode']} {hint['band']} -> {r} (planner {baseline})", flush=True)
         except Exception as e:
             rec["muse_grip_error"] = str(e)[:200]
