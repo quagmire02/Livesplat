@@ -40,6 +40,20 @@ def sh(cmd, log):
         return subprocess.run(list(map(str, cmd)), stdout=f, stderr=subprocess.STDOUT, cwd=HERE).returncode
 
 
+def wsl_path(p):
+    """Accept WSL paths and (quoted) Windows paths: C:\\x\\v.mov, \\\\wsl.localhost\\Ubuntu-22.04\\home\\u\\v.mov."""
+    import re
+    if Path(p).exists():
+        return str(Path(p))
+    m = re.match(r"^[\\/]{2}wsl(?:\.localhost|\$)[\\/][^\\/]+[\\/](.*)$", p, re.I)
+    if m:
+        return "/" + m.group(1).replace("\\", "/")
+    m = re.match(r"^([A-Za-z]):[\\/](.*)$", p)
+    if m:
+        return f"/mnt/{m.group(1).lower()}/" + m.group(2).replace("\\", "/")
+    return p
+
+
 def probe_video(path):
     out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                           "stream=width,height:format=duration", "-of", "json", str(path)],
@@ -116,6 +130,10 @@ def main():
     ap.add_argument("--no-models", action="store_true", help="skip the Hunyuan 3D models (they also give collision shapes)")
     a = ap.parse_args()
 
+    a.video = wsl_path(a.video)
+    if not Path(a.video).exists():
+        sys.exit(f"video not found: {a.video}\nIn WSL use a Linux path (e.g. ~/IMG_2985.mov or /mnt/c/Users/you/Videos/x.mov), "
+                 "or put a Windows path in quotes.")
     vw, vh, dur = probe_video(a.video)
     vram, ram = free_vram_gb(), free_ram_gb()
     print(f"video {vw}x{vh}, {dur:.1f}s | free VRAM {vram:.1f} GB, RAM {ram:.1f} GB")
