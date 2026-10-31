@@ -21,6 +21,36 @@ def look_at_point(c2ws):
     return np.linalg.solve(A, b)
 
 
+def seen_point(c2ws, P, cone_deg=6.0):
+    """What the cameras actually look at: median of the points near each camera's central ray (at their median
+    depth), then the median over cameras. Robust when the view rays are nearly parallel (short sideways sweeps),
+    where the least-squares ray intersection lands far from everything."""
+    hits = []
+    for T in c2ws:
+        o, d = T[:3, 3], T[:3, 2] / np.linalg.norm(T[:3, 2])
+        rel = P - o
+        t = rel @ d
+        ok = t > 0
+        if ok.sum() < 20:
+            continue
+        perp = np.linalg.norm(rel[ok] - np.outer(t[ok], d), axis=1)
+        near = perp < np.tan(np.radians(cone_deg)) * t[ok]
+        if near.sum() >= 10:
+            hits.append(o + d * np.median(t[ok][near]))
+    return np.median(hits, axis=0) if hits else None
+
+
+def robust_look(c2ws, P):
+    """Ray intersection if points actually surround it, else what the cameras see."""
+    look = look_at_point(c2ws)
+    cams = np.array([T[:3, 3] for T in c2ws])
+    scene = np.linalg.norm(cams - look, axis=1).mean()
+    if (np.linalg.norm(P - look, axis=1) < 0.5 * scene).sum() >= 1000:
+        return look
+    seen = seen_point(c2ws, P)
+    return look if seen is None else seen
+
+
 def ransac_plane(P, thresh, iters=2000, rng=None):
     rng = rng or np.random.default_rng(0)
     best, best_n = None, 0
@@ -49,6 +79,19 @@ def orbit_up(cams, look):
     return up if (cams.mean(0) - look) @ up > 0 else -up
 
 
+def scene_up(c2ws, look):
+    """World up for any capture path. A flat orbit's normal is precise, but short sweeps and arcs are not
+    orbits (seen: a 8 s clip whose path normal was 130 deg off). Phones are held upright, so the mean image-up
+    axis (-y, OpenCV) is a robust gravity proxy; use the orbit normal only when the path is flat and agrees."""
+    cams = np.array([T[:3, 3] for T in c2ws])
+    cam_up = np.mean([-np.asarray(T)[:3, 1] for T in c2ws], 0)
+    cam_up /= max(np.linalg.norm(cam_up), 1e-9)
+    orb = orbit_up(cams, look)
+    if abs(orb @ cam_up) > 0.7:                                  # orbit agrees with gravity: it is the precise one
+        return orb if orb @ cam_up > 0 else -orb
+    return cam_up
+
+
 def find_table(means, opacity, c2ws, cyl_frac=0.35, band_frac=0.01, thresh_frac=0.004, min_opacity=0.5,
                fill_opacity=0.1, obj_h_frac=0.4, cell_frac=0.01, max_r_frac=1.2):
     """Returns dict with world->table 4x4 'T', table 'polygon' (K,2) in table frame, 'radius'.
@@ -56,18 +99,21 @@ def find_table(means, opacity, c2ws, cyl_frac=0.35, band_frac=0.01, thresh_frac=
     The table top is the densest height inside a vertical cylinder around the look-at axis:
     objects spread over many heights, the floor below is mostly hidden by the table.
     """
-    look = look_at_point(c2ws)
+    P = means[opacity > min_opacity]
+    look = robust_look(c2ws, P)
     cams = np.array([T[:3, 3] for T in c2ws])
     scene = np.linalg.norm(cams - look, axis=1).mean()          # camera distance to look-at
-    up = orbit_up(cams, look)
-    P = means[opacity > min_opacity]
+    up = scene_up(c2ws, look)
     rel = P - look
     h = rel @ up
     radial = np.linalg.norm(rel - np.outer(h, up), axis=1)
     cyl = P[radial < cyl_frac * scene]
     hc = h[radial < cyl_frac * scene]
     hc_cam = (cams - look) @ up
-    cyl, hc = cyl[hc < hc_cam.min()], hc[hc < hc_cam.min()]     # below the cameras
+    below = hc < np.median(hc_cam)                              # below the cameras' typical height
+    if below.sum() < 100:
+        raise RuntimeError("no surface found below the cameras: film the table from above, circling it")
+    cyl, hc = cyl[below], hc[below]
     bw = band_frac * scene
     hist, edges = np.histogram(hc, bins=np.arange(hc.min(), hc.max() + bw, bw))
     peak = edges[np.argmax(hist)] + bw / 2

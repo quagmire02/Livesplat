@@ -153,7 +153,7 @@ def main():
         if sh(["bash", "recon/run_thrift.sh", a.video, a.name, "--stage", "cloud", "--fps", p["fps"]], log):
             sys.exit(f"stage 1 failed, see {log}")
 
-    while True:
+    while not (run / "thrift_sfm" / "export").exists():          # a rerun keeps the trained splat (~1 h)
         rc = sh(["bash", "recon/sfm_and_train.sh", a.name, p["iters"], p["width"], p["cap"]], log)
         if rc == 0:
             break

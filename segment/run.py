@@ -4,6 +4,7 @@ Run (WSL): python -m segment.run <run_dir>     (run_dir = $LIVESPLAT_DATA/runs/<
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import cv2
@@ -52,6 +53,15 @@ def main():
     remap = np.zeros(labels.max() + 1, np.int32)
     remap[ids] = np.arange(1, len(ids) + 1)
     labels = np.sign(labels) * remap[np.abs(labels)]                # keep -k reflection labels
+
+    # Sanity: a tabletop scene has a table about the size of the camera circle and objects that are a small share
+    # of the splat. Otherwise the capture did not show a tabletop from above (seen: an 8 s sideways close-up).
+    biggest = max(((labels == k).sum() for k in range(1, labels.max() + 1)), default=0)
+    if tb["radius"] > 3.0 * tb["scene_scale"] or biggest > 0.5 * len(labels):
+        sys.exit(f"This video does not look like a tabletop seen from above (table radius {tb['radius']:.1f} vs camera "
+                 f"distance {tb['scene_scale']:.1f}; largest 'object' = {biggest / len(labels):.0%} of the scene).\n"
+                 "Re-film: 20-40 s, walk a full circle around the table, phone ~45 deg above the table top, "
+                 "objects a few cm apart and fully in view.")
 
     json.dump({"T_world_to_table": tb["T"].tolist(), "polygon": tb["polygon"].tolist(),
                "radius": tb["radius"], "scene_scale": tb["scene_scale"],
